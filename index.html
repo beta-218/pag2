@@ -5,10 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>🎬 hello</title>
 <style>
-  * { 
-    box-sizing: border-box; 
-    -webkit-tap-highlight-color: transparent;
-  }
+  * { box-sizing: border-box; }
   body {
     margin: 0;
     background: #000;
@@ -19,7 +16,7 @@
     justify-content: flex-start;
     align-items: center;
     min-height: 100vh;
-    padding: 80px 20px 20px; /* 恢复原来的上边距 */
+    padding: 80px 20px 20px; /* 恢复原页面顶部距离 */
   }
   .content-wrapper {
     display: flex;
@@ -28,14 +25,13 @@
     width: 100%;
     max-width: 90vw;
   }
-  /* 提示文字：缩小且低调 */
+  /* 提示文字：低调缩小，不占视觉中心 */
   h1 {
     font-size: 13px;
     font-weight: normal;
-    margin-bottom: 15px;
+    margin-bottom: 20px;
     text-align: center;
     opacity: 0.6;
-    letter-spacing: 0.5px;
   }
   .video-container {
     position: relative;
@@ -46,7 +42,6 @@
     height: auto;
     border-radius: 12px;
     background: #000;
-    display: block;
   }
   /* 播放器下方的卡顿提示 */
   .buffer-tips {
@@ -128,15 +123,8 @@
 <div class="content-wrapper">
   <h1>🎬 为避免财产损失，请勿相信视频中的广告</h1>
   <div class="video-container">
-    <!-- 增加了禁用下载、防国产浏览器劫持的属性 -->
-    <video id="video" 
-           playsinline 
-           webkit-playsinline 
-           x5-video-player-type="h5" 
-           x5-video-player-fullscreen="true"
-           controlsList="nodownload noremoteplayback" 
-           preload="auto" 
-           controls></video>
+    <!-- 严格保持你原本的标签写法，防浏览器劫持，让进度条回归底部 -->
+    <video id="video" playsinline webkit-playsinline preload="auto" controls></video>
     <div class="loading-overlay" id="loadingOverlay">
       <div class="loader"></div>
       <div class="loading-text">
@@ -144,7 +132,7 @@
       </div>
     </div>
   </div>
-  <div class="buffer-tips">💡 如遇卡顿，请尝试暂停缓冲几秒</div>
+  <div class="buffer-tips">如遇卡顿，请尝试暂停缓冲几秒或刷新页面</div>
 </div>
 
 <div class="video-list" id="videoList">
@@ -159,6 +147,7 @@
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTA2L0dUU2pXWTViL2luZGV4Lm0zdTg=">视频9</button>
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTAyL2k3UFJkNHBPL2luZGV4Lm0zdTg=">视频10</button>
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwODE5L3EzSVp1bDd4L2luZGV4Lm0zdTg=">视频11</button>
+  <!-- 保持修复好的视频12 Base64 链接 -->
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTEwL3FyRjBXM2hSL2luZGV4Lm0zdTg=">视频12</button>
 </div>
 
@@ -167,27 +156,12 @@ const video = document.getElementById('video');
 const buttons = document.querySelectorAll('.video-button');
 const loadingOverlay = document.getElementById('loadingOverlay');
 let hls = null;
-let lastSaveTime = 0;
 
-function saveProgress(url, time){ 
-  const now = Date.now();
-  if (now - lastSaveTime > 2000) {
-    localStorage.setItem("progress_" + url, time.toFixed(1)); 
-    lastSaveTime = now;
-  }
-}
-
-function loadProgress(url){ 
-  const t = parseFloat(localStorage.getItem("progress_" + url)); 
-  return isNaN(t) ? 0 : t; 
-}
-
-function setActiveButton(enc){ 
-  buttons.forEach(btn => btn.classList.toggle('active', btn.dataset.enc.trim() === enc)); 
-}
-
-function showLoading(){ loadingOverlay.style.display = 'flex'; }
-function hideLoading(){ loadingOverlay.style.display = 'none'; }
+function saveProgress(url, time){ localStorage.setItem("progress_" + url, time.toFixed(1)); }
+function loadProgress(url){ const t=parseFloat(localStorage.getItem("progress_" + url)); return isNaN(t)?0:t; }
+function setActiveButton(enc){ buttons.forEach(btn=>btn.classList.toggle('active',btn.dataset.enc.trim()===enc)); }
+function showLoading(){ loadingOverlay.style.display='flex'; }
+function hideLoading(){ loadingOverlay.style.display='none'; }
 
 function decodeBase64(str){
   try { return atob(str.replace(/[\r\n\s]/g, "")); }
@@ -204,18 +178,17 @@ function loadVideo(url, resumeTime, isM3U8){
     hls = null; 
   }
 
-  if(isM3U8 && typeof Hls !== 'undefined' && Hls.isSupported()){
-    // 恢复全速加载与强力预加载设置，解决卡顿问题
+  // 恢复最快网速加载策略，不设置限制
+  if(isM3U8 && typeof Hls !== 'undefined'){
     hls = new Hls({
       enableWorker: true,
-      startFragPrefetch: true,
-      lowLatencyMode: false
+      startFragPrefetch: true
     });
     hls.loadSource(url);
     hls.attachMedia(video);
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      if(resumeTime > 0) video.currentTime = resumeTime;
+      video.currentTime = resumeTime;
       video.play().catch(()=>{});
       hideLoading();
     });
@@ -241,21 +214,17 @@ function loadVideo(url, resumeTime, isM3U8){
     video.src = url;
     video.addEventListener('loadedmetadata', function onLoaded(){
       video.removeEventListener('loadedmetadata', onLoaded);
-      if(resumeTime > 0) video.currentTime = resumeTime;
+      video.currentTime = resumeTime;
       video.play().catch(()=>{});
       hideLoading();
     });
   }
 
-  if (video._saveHandler) {
-    video.removeEventListener('timeupdate', video._saveHandler);
-  }
-  video._saveHandler = () => saveProgress(url, video.currentTime);
-  video.addEventListener('timeupdate', video._saveHandler);
+  video.controls = true;
 
-  video.onended = () => {
-    localStorage.removeItem("progress_" + url);
-  };
+  video.removeEventListener('timeupdate', video._saveHandler);
+  video._saveHandler = ()=>saveProgress(url, video.currentTime);
+  video.addEventListener('timeupdate', video._saveHandler);
 }
 
 function loadVideoFromEncoded(encStr){
@@ -271,7 +240,7 @@ function loadVideoFromEncoded(encStr){
 loadVideoFromEncoded(buttons[0].dataset.enc.trim());
 
 buttons.forEach(btn => {
-  btn.addEventListener('click', () => loadVideoFromEncoded(btn.dataset.enc.trim()));
+  btn.addEventListener('click', ()=>loadVideoFromEncoded(btn.dataset.enc.trim()));
 });
 
 video.addEventListener('playing', hideLoading);
