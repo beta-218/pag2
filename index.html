@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🎬 Video Player</title>
+<title>🎬 hello</title>
 <style>
   * { 
     box-sizing: border-box; 
@@ -13,13 +13,13 @@
     margin: 0;
     background: #000;
     color: #fff;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: Arial, sans-serif;
     display: flex;
     flex-direction: column;
     justify-content: flex-start;
     align-items: center;
     min-height: 100vh;
-    padding: 30px 15px 20px;
+    padding: 80px 20px 20px; /* 恢复原来的上边距 */
   }
   .content-wrapper {
     display: flex;
@@ -28,13 +28,13 @@
     width: 100%;
     max-width: 90vw;
   }
-  /* 调整后的提示文字样式 */
+  /* 提示文字：缩小且低调 */
   h1 {
-    font-size: 12px;
+    font-size: 13px;
     font-weight: normal;
-    margin: 0 0 12px 0;
+    margin-bottom: 15px;
     text-align: center;
-    color: rgba(255, 255, 255, 0.5);
+    opacity: 0.6;
     letter-spacing: 0.5px;
   }
   .video-container {
@@ -47,6 +47,13 @@
     border-radius: 12px;
     background: #000;
     display: block;
+  }
+  /* 播放器下方的卡顿提示 */
+  .buffer-tips {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+    margin-top: 8px;
+    text-align: center;
   }
   .loading-overlay {
     position: absolute;
@@ -61,8 +68,8 @@
     border-radius: 12px;
   }
   .loader {
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     border: 3px solid rgba(255, 255, 255, 0.2);
     border-top-color: #00ff88;
     border-radius: 50%;
@@ -75,7 +82,7 @@
   }
   .loading-text {
     margin-top: 10px;
-    font-size: 13px;
+    font-size: 14px;
     color: #00ff88;
     letter-spacing: 1px;
     display: flex;
@@ -103,17 +110,17 @@
     gap: 10px;
   }
   .video-button {
-    padding: 8px 14px;
-    font-size: 14px;
+    padding: 10px 16px;
+    font-size: 15px;
     border: none;
     border-radius: 8px;
-    background-color: #222;
-    color: #ccc;
+    background-color: #333;
+    color: white;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color 0.3s;
   }
-  .video-button:hover { background-color: #444; color: #fff; }
-  .video-button.active { background-color: #00c300; color: #fff; font-weight: bold; }
+  .video-button:hover { background-color: #555; }
+  .video-button.active { background-color: #00c300; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
 </head>
@@ -121,7 +128,15 @@
 <div class="content-wrapper">
   <h1>🎬 为避免财产损失，请勿相信视频中的广告</h1>
   <div class="video-container">
-    <video id="video" playsinline webkit-playsinline preload="auto" controls></video>
+    <!-- 增加了禁用下载、防国产浏览器劫持的属性 -->
+    <video id="video" 
+           playsinline 
+           webkit-playsinline 
+           x5-video-player-type="h5" 
+           x5-video-player-fullscreen="true"
+           controlsList="nodownload noremoteplayback" 
+           preload="auto" 
+           controls></video>
     <div class="loading-overlay" id="loadingOverlay">
       <div class="loader"></div>
       <div class="loading-text">
@@ -129,6 +144,7 @@
       </div>
     </div>
   </div>
+  <div class="buffer-tips">💡 如遇卡顿，请尝试暂停缓冲几秒</div>
 </div>
 
 <div class="video-list" id="videoList">
@@ -143,7 +159,6 @@
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTA2L0dUU2pXWTViL2luZGV4Lm0zdTg=">视频9</button>
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTAyL2k3UFJkNHBPL2luZGV4Lm0zdTg=">视频10</button>
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwODE5L3EzSVp1bDd4L2luZGV4Lm0zdTg=">视频11</button>
-  <!-- 修复了视频12 Base64字符串开头的 h 丢失问题 -->
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTEwL3FyRjBXM2hSL2luZGV4Lm0zdTg=">视频12</button>
 </div>
 
@@ -155,7 +170,6 @@ let hls = null;
 let lastSaveTime = 0;
 
 function saveProgress(url, time){ 
-  // 每 2 秒才向 localStorage 保存一次，防止密集 I/O 导致手机卡顿
   const now = Date.now();
   if (now - lastSaveTime > 2000) {
     localStorage.setItem("progress_" + url, time.toFixed(1)); 
@@ -190,15 +204,12 @@ function loadVideo(url, resumeTime, isM3U8){
     hls = null; 
   }
 
-  // 区分 PC/Android (Hls.js) 与 原生 iOS Safari 支持
-  if(isM3U8 && Hls.isSupported()){
+  if(isM3U8 && typeof Hls !== 'undefined' && Hls.isSupported()){
+    // 恢复全速加载与强力预加载设置，解决卡顿问题
     hls = new Hls({
-      maxBufferLength: 30,
-      maxMaxBufferLength: 60,
-      fragLoadingTimeOut: 20000,
-      manifestLoadingTimeOut: 20000,
       enableWorker: true,
-      startFragPrefetch: true
+      startFragPrefetch: true,
+      lowLatencyMode: false
     });
     hls.loadSource(url);
     hls.attachMedia(video);
@@ -227,7 +238,6 @@ function loadVideo(url, resumeTime, isM3U8){
     });
 
   } else {
-    // 兼容 iOS 原生播放 m3u8
     video.src = url;
     video.addEventListener('loadedmetadata', function onLoaded(){
       video.removeEventListener('loadedmetadata', onLoaded);
@@ -237,14 +247,12 @@ function loadVideo(url, resumeTime, isM3U8){
     });
   }
 
-  // 绑定进度记忆监听
   if (video._saveHandler) {
     video.removeEventListener('timeupdate', video._saveHandler);
   }
   video._saveHandler = () => saveProgress(url, video.currentTime);
   video.addEventListener('timeupdate', video._saveHandler);
 
-  // 视频播放完毕后清空该视频的记忆，方便下次重头播放
   video.onended = () => {
     localStorage.removeItem("progress_" + url);
   };
@@ -260,15 +268,12 @@ function loadVideoFromEncoded(encStr){
   loadVideo(url, resumeTime, isM3U8);
 }
 
-// 默认加载第一集
 loadVideoFromEncoded(buttons[0].dataset.enc.trim());
 
-// 绑定按钮点击事件
 buttons.forEach(btn => {
   btn.addEventListener('click', () => loadVideoFromEncoded(btn.dataset.enc.trim()));
 });
 
-// 监听播放状态隐去 loading 动画
 video.addEventListener('playing', hideLoading);
 video.addEventListener('canplay', hideLoading);
 </script>
