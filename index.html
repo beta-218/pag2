@@ -35,12 +35,20 @@
   .video-container {
     position: relative;
     width: 100%;
+    /* 预留 16:9 比例，防止动态注入 video 时页面闪烁 */
+    aspect-ratio: 16 / 9;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
   }
-  video {
-    width: 100%;
-    height: auto;
+  /* 针对防劫持 video 的强行内敛样式 */
+  .video-container video {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain !important;
     border-radius: 12px;
     background: #000;
+    display: block;
   }
   .buffer-tips {
     font-size: 11px;
@@ -59,6 +67,7 @@
     flex-direction: column;
     pointer-events: none;
     border-radius: 12px;
+    z-index: 10;
   }
   .loader {
     width: 40px;
@@ -120,17 +129,8 @@
 <body>
 <div class="content-wrapper">
   <h1>🎬 为避免财产损失，请勿相信视频中的广告</h1>
-  <div class="video-container">
-    <!-- 关键改动：增加了防劫持属性 (x5-*, x-webkit-*, webkit-playsinline) 并恢复 preload="auto" -->
-    <video id="video" 
-           playsinline 
-           webkit-playsinline 
-           x5-playsinline 
-           x5-video-player-type="h5" 
-           x5-video-player-fullscreen="false"
-           x-webkit-airplay="allow"
-           preload="auto" 
-           controls></video>
+  <div class="video-container" id="videoWrapper">
+    <!-- 删除了静态 video 标签，避免页面加载时直接被小米浏览器扫描拦截 -->
     <div class="loading-overlay" id="loadingOverlay">
       <div class="loader"></div>
       <div class="loading-text">
@@ -157,9 +157,10 @@
 </div>
 
 <script>
-const video = document.getElementById('video');
+const videoWrapper = document.getElementById('videoWrapper');
 const buttons = document.querySelectorAll('.video-button');
 const loadingOverlay = document.getElementById('loadingOverlay');
+let video = null;
 let hls = null;
 
 function saveProgress(url, time){ localStorage.setItem("progress_" + url, time.toFixed(1)); }
@@ -173,15 +174,40 @@ function decodeBase64(str){
   catch(e){ return ""; }
 }
 
-function loadVideo(url, resumeTime, isM3U8, autoPlay = false){
-  video.pause();
-  video.removeAttribute('src');
-  video.load();
+// 动态创建带有防劫持全套属性的 Video 节点
+function createAntiHijackVideo() {
+  if (video) {
+    video.pause();
+    if (video.parentNode) video.parentNode.removeChild(video);
+  }
+  const v = document.createElement('video');
+  v.id = 'video';
+  v.controls = true;
+  v.setAttribute('playsinline', 'true');
+  v.setAttribute('webkit-playsinline', 'true');
+  v.setAttribute('x5-playsinline', 'true');
+  v.setAttribute('x5-video-player-type', 'h5-page'); // 使用 h5-page 彻底禁用原生弹层工具栏
+  v.setAttribute('x5-video-player-fullscreen', 'false');
+  v.setAttribute('x5-video-orientation', 'portraint');
+  v.setAttribute('x-webkit-airplay', 'allow');
+  v.setAttribute('preload', 'auto');
+  
+  // 插入 DOM
+  videoWrapper.insertBefore(v, loadingOverlay);
+  
+  v.addEventListener('playing', hideLoading);
+  v.addEventListener('canplay', hideLoading);
+  return v;
+}
 
+function loadVideo(url, resumeTime, isM3U8, autoPlay = false){
   if(hls){ 
     hls.destroy(); 
     hls = null; 
   }
+
+  // 每次加载都重新生成纯净 DOM 节点，打断浏览器的长连接劫持监听
+  video = createAntiHijackVideo();
 
   const canNativePlay = video.canPlayType('application/vnd.apple.mpegurl');
 
@@ -198,7 +224,7 @@ function loadVideo(url, resumeTime, isM3U8, autoPlay = false){
       if(autoPlay){
         video.play().catch(()=>{});
       } else {
-        video.pause(); // 确保加载完成后保持暂停状态
+        video.pause();
       }
       hideLoading();
     });
@@ -221,6 +247,7 @@ function loadVideo(url, resumeTime, isM3U8, autoPlay = false){
     });
 
   } else {
+    // 适用于 iOS Safari 原生 m3u8
     video.src = url;
     video.addEventListener('loadedmetadata', function onLoaded(){
       video.removeEventListener('loadedmetadata', onLoaded);
@@ -228,15 +255,12 @@ function loadVideo(url, resumeTime, isM3U8, autoPlay = false){
       if(autoPlay){
         video.play().catch(()=>{});
       } else {
-        video.pause(); // 确保加载完成后保持暂停状态
+        video.pause();
       }
       hideLoading();
     });
   }
 
-  video.controls = true;
-
-  video.removeEventListener('timeupdate', video._saveHandler);
   video._saveHandler = ()=>saveProgress(url, video.currentTime);
   video.addEventListener('timeupdate', video._saveHandler);
 }
@@ -259,9 +283,6 @@ buttons.forEach(btn => {
     loadVideoFromEncoded(btn.dataset.enc.trim(), true);
   });
 });
-
-video.addEventListener('playing', hideLoading);
-video.addEventListener('canplay', hideLoading);
 </script>
 </body>
 </html>
