@@ -6,7 +6,6 @@
 <title>🎬 hello</title>
 <style>
   * { box-sizing: border-box; }
-
   body {
     margin: 0;
     background: #000;
@@ -17,9 +16,8 @@
     justify-content: flex-start;
     align-items: center;
     min-height: 100vh;
-    padding: 80px 20px 20px;
+    padding: 80px 20px 20px; /* 恢复原页面顶部距离 */
   }
-
   .content-wrapper {
     display: flex;
     flex-direction: column;
@@ -27,7 +25,7 @@
     width: 100%;
     max-width: 90vw;
   }
-
+  /* 提示文字：低调缩小，不占视觉中心 */
   h1 {
     font-size: 13px;
     font-weight: normal;
@@ -35,34 +33,70 @@
     text-align: center;
     opacity: 0.6;
   }
-
   .video-container {
     position: relative;
     width: 100%;
-    padding-bottom: 56.25%; /* 16:9 占位 */
-    background: #000;
-    border-radius: 12px;
-    overflow: hidden;
   }
-
-  .video-container iframe {
-    position: absolute;
-    top: 0;
-    left: 0;
+  video {
     width: 100%;
-    height: 100%;
-    border: none;
-    display: block;
+    height: auto;
+    border-radius: 12px;
     background: #000;
   }
-
+  /* 播放器下方的卡顿提示 */
   .buffer-tips {
     font-size: 11px;
     color: rgba(255, 255, 255, 0.4);
     margin-top: 8px;
     text-align: center;
   }
-
+  .loading-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    pointer-events: none;
+    border-radius: 12px;
+  }
+  .loader {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #00ff88;
+    border-radius: 50%;
+    animation: spin 1s linear infinite, pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(0,255,136,0.6); }
+    50% { box-shadow: 0 0 15px 5px rgba(0,255,136,0.3); }
+  }
+  .loading-text {
+    margin-top: 10px;
+    font-size: 14px;
+    color: #00ff88;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+  }
+  .dots span {
+    opacity: 0;
+    color: #00ff88;
+    text-shadow: 0 0 5px #00ff88, 0 0 10px #00ff88;
+    animation: blink 1.5s infinite;
+  }
+  .dots span:nth-child(1) { animation-delay: 0s; }
+  .dots span:nth-child(2) { animation-delay: 0.3s; }
+  .dots span:nth-child(3) { animation-delay: 0.6s; }
+  @keyframes blink {
+    0%, 20% { opacity: 0; }
+    30%, 80% { opacity: 1; }
+    100% { opacity: 0; }
+  }
   .video-list {
     display: flex;
     flex-wrap: wrap;
@@ -70,7 +104,6 @@
     margin-top: 20px;
     gap: 10px;
   }
-
   .video-button {
     padding: 10px 16px;
     font-size: 15px;
@@ -81,536 +114,137 @@
     cursor: pointer;
     transition: background-color 0.3s;
   }
-
-  .video-button:hover {
-    background-color: #555;
-  }
-
-  .video-button.active {
-    background-color: #00c300;
-  }
+  .video-button:hover { background-color: #555; }
+  .video-button.active { background-color: #00c300; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
 </head>
-
 <body>
-
 <div class="content-wrapper">
   <h1>🎬 为避免财产损失，请勿相信视频中的广告</h1>
-
-  <div class="video-container" id="playerContainer"></div>
-
-  <div class="buffer-tips">
-    如遇卡顿，请尝试暂停缓冲几秒 · 点击播放按钮开始观看
+  <div class="video-container">
+    <!-- 严格保持你原本的标签写法，防浏览器劫持，让进度条回归底部 -->
+    <video id="video" playsinline webkit-playsinline preload="auto" controls></video>
+    <div class="loading-overlay" id="loadingOverlay">
+      <div class="loader"></div>
+      <div class="loading-text">
+        正在加载视频<span class="dots"><span>.</span><span>.</span><span>.</span></span>
+      </div>
+    </div>
   </div>
+  <div class="buffer-tips">如遇卡顿，请尝试暂停缓冲几秒</div>
 </div>
 
 <div class="video-list" id="videoList">
-
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNjI5L2hBN2l0blVkL2luZGV4Lm0zdTg=">视频1</button>
-
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNC5maGJiZmYuY29tLzIwMjQxMTE5L2dvbGp6a2lNL2luZGV4Lm0zdTg=">视频2</button>
-
-  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNDE4L3pPUE9KeTlPL2luZGV4Lm0zdG8=">视频3</button>
-
-  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNjI3LzRnUXdUa0ptL2luZGV4Lm0zdGg=">视频4</button>
-
-  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTA3L2drOHVWRGNaL2luZGV4Lm0zdGg=">视频5</button>
-
-  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNzA4L1lIcHdyb1hIL2luZGV4Lm0zdGg=">视频6</button>
-
-  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNTI4L3h4eHVWUGt5L2luZGV4Lm0zdGg=">视频7</button>
-
-  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNDI5L3BJZ3FnckZvL2luZGV4Lm0zdGg=">视频8</button>
-
-  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTA2L0dUU2pXWTViL2luZGV4Lm0zdGg=">视频9</button>
-
-  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTAyL2k3UFJkNHBPL2luZGV4Lm0zdGg=">视频10</button>
-
-  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwODE5L3EzSVp1bDd4L2luZGV4Lm0zdGg=">视频11</button>
-
-  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTEwL3FyRjBXM2hSL2luZGV4Lm0zdGg=">视频12</button>
-
+  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNDE4L3pPUG9KeTlPL2luZGV4Lm0zdTg=">视频3</button>
+  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNjI3LzRnUXdUa0ptL2luZGV4Lm0zdTg=">视频4</button>
+  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTA3L2drOHVWRGNaL2luZGV4Lm0zdTg=">视频5</button>
+  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNzA4L1lIcHdyb1hIL2luZGV4Lm0zdTg=">视频6</button>
+  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNTI4L3h4eHVWUGt5L2luZGV4Lm0zdTg=">视频7</button>
+  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNDI5L3BJZ3FnckZvL2luZGV4Lm0zdTg=">视频8</button>
+  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTA2L0dUU2pXWTViL2luZGV4Lm0zdTg=">视频9</button>
+  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTAyL2k3UFJkNHBPL2luZGV4Lm0zdTg=">视频10</button>
+  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwODE5L3EzSVp1bDd4L2luZGV4Lm0zdTg=">视频11</button>
+  <!-- 保持修复好的视频12 Base64 链接 -->
+  <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTEwL3FyRjBXM2hSL2luZGV4Lm0zdTg=">视频12</button>
 </div>
 
 <script>
-(function () {
-  'use strict';
+const video = document.getElementById('video');
+const buttons = document.querySelectorAll('.video-button');
+const loadingOverlay = document.getElementById('loadingOverlay');
+let hls = null;
 
-  var buttons = document.querySelectorAll('.video-button');
-  var playerContainer = document.getElementById('playerContainer');
+function saveProgress(url, time){ localStorage.setItem("progress_" + url, time.toFixed(1)); }
+function loadProgress(url){ const t=parseFloat(localStorage.getItem("progress_" + url)); return isNaN(t)?0:t; }
+function setActiveButton(enc){ buttons.forEach(btn=>btn.classList.toggle('active',btn.dataset.enc.trim()===enc)); }
+function showLoading(){ loadingOverlay.style.display='flex'; }
+function hideLoading(){ loadingOverlay.style.display='none'; }
 
-  /* ---------- 进度存取（主页面负责，iframe 只上报） ---------- */
+function decodeBase64(str){
+  try { return atob(str.replace(/[\r\n\s]/g, "")); }
+  catch(e){ return ""; }
+}
 
-  function saveProgress(url, time) {
-    if (!url || !isFinite(time)) return;
+function loadVideo(url, resumeTime, isM3U8){
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
 
-    try {
-      localStorage.setItem(
-        'progress_' + url,
-        time.toFixed(1)
-      );
-    } catch (e) {}
+  if(hls){ 
+    hls.destroy(); 
+    hls = null; 
   }
 
-  function loadProgress(url) {
-    try {
-      var t = parseFloat(
-        localStorage.getItem('progress_' + url)
-      );
+  // 恢复最快网速加载策略，不设置限制
+  if(isM3U8 && typeof Hls !== 'undefined'){
+    hls = new Hls({
+      enableWorker: true,
+      startFragPrefetch: true
+    });
+    hls.loadSource(url);
+    hls.attachMedia(video);
 
-      return isNaN(t) ? 0 : t;
-    } catch (e) {
-      return 0;
-    }
-  }
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      video.currentTime = resumeTime;
+      video.play().catch(()=>{});
+      hideLoading();
+    });
 
-  /* ---------- Base64 ---------- */
-
-  function decodeBase64(str) {
-    try {
-      return atob(
-        str.replace(/[\r\n\s]/g, '')
-      );
-    } catch (e) {
-      return '';
-    }
-  }
-
-  /* ---------- 按钮状态 ---------- */
-
-  function setActiveButton(enc) {
-    for (var i = 0; i < buttons.length; i++) {
-      var b = buttons[i];
-
-      if (b.dataset.enc.trim() === enc) {
-        b.classList.add('active');
-      } else {
-        b.classList.remove('active');
+    hls.on(Hls.Events.ERROR, function(event, data){
+      if(data.fatal){
+        switch(data.type){
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            hls.startLoad();
+            break;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            hls.recoverMediaError();
+            break;
+          default:
+            hls.destroy();
+            hideLoading();
+            break;
+        }
       }
-    }
+    });
+
+  } else {
+    video.src = url;
+    video.addEventListener('loadedmetadata', function onLoaded(){
+      video.removeEventListener('loadedmetadata', onLoaded);
+      video.currentTime = resumeTime;
+      video.play().catch(()=>{});
+      hideLoading();
+    });
   }
 
-  /* ---------- 构造 iframe 内的播放器 HTML ---------- */
-
-  function buildPlayerHtml(url, resumeTime) {
-
-    var isM3U8 = url.indexOf('.m3u8') !== -1;
-    var urlJson = JSON.stringify(url);
-
-    var resumeNum =
-      (isFinite(resumeTime) && resumeTime > 0)
-        ? resumeTime
-        : 0;
-
-    var html = ''
-
-      + '<!DOCTYPE html>'
-
-      + '<html lang="zh-CN">'
-      + '<head>'
-      + '<meta charset="UTF-8">'
-      + '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
-
-      + '<style>'
-
-      /* ---------- 基础布局 ---------- */
-
-      + 'html,body{'
-      + 'margin:0;'
-      + 'padding:0;'
-      + 'width:100%;'
-      + 'height:100%;'
-      + 'background:#000;'
-      + 'overflow:hidden;'
-      + 'font-family:Arial,sans-serif;'
-      + '}'
-
-      + '.player{'
-      + 'position:relative;'
-      + 'width:100%;'
-      + 'height:100%;'
-      + 'background:#000;'
-      + 'overflow:hidden;'
-      + '}'
-
-      + 'video{'
-      + 'position:absolute;'
-      + 'top:0;'
-      + 'left:0;'
-      + 'width:100%;'
-      + 'height:100%;'
-      + 'display:block;'
-      + 'background:#000;'
-      + 'outline:none;'
-      + '}'
-
-      /* ---------- 自定义控制栏 ---------- */
-
-      + '.controls{'
-      + 'position:absolute;'
-      + 'left:0;'
-      + 'right:0;'
-      + 'bottom:0;'
-      + 'display:flex;'
-      + 'align-items:center;'
-      + 'gap:8px;'
-      + 'padding:10px 12px;'
-      + 'background:linear-gradient(transparent,rgba(0,0,0,.85));'
-      + 'opacity:1;'
-      + 'transition:opacity .25s;'
-      + 'z-index:10;'
-      + '}'
-
-      + '.controls button{'
-      + 'border:0;'
-      + 'background:transparent;'
-      + 'color:#fff;'
-      + 'font-size:14px;'
-      + 'cursor:pointer;'
-      + 'padding:4px 6px;'
-      + '}'
-
-      + '.controls button:hover{'
-      + 'color:#00c300;'
-      + '}'
-
-      + '.time{'
-      + 'font-size:11px;'
-      + 'color:rgba(255,255,255,.8);'
-      + 'white-space:nowrap;'
-      + '}'
-
-      + '.progress{'
-      + 'flex:1;'
-      + 'min-width:30px;'
-      + 'height:4px;'
-      + 'cursor:pointer;'
-      + 'accent-color:#00c300;'
-      + '}'
-
-      + '.volume{'
-      + 'width:70px;'
-      + 'accent-color:#00c300;'
-      + '}'
-
-      + '.loading{'
-      + 'position:absolute;'
-      + 'top:50%;'
-      + 'left:50%;'
-      + 'transform:translate(-50%,-50%);'
-      + 'font-size:12px;'
-      + 'color:rgba(255,255,255,.5);'
-      + 'pointer-events:none;'
-      + '}'
-
-      + '</style>'
-
-      + '<scr' + 'ipt src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></scr' + 'ipt>'
-
-      + '</head>'
-
-      + '<body>'
-
-      + '<div class="player" id="player">'
-
-      /*
-       * 关键修改：
-       * 不使用原生 controls，
-       * 改为自定义控制栏。
-       */
-
-      + '<video id="v" playsinline webkit-playsinline preload="auto"></video>'
-
-      + '<div class="loading" id="loading">正在加载视频...</div>'
-
-      + '<div class="controls" id="controls">'
-
-      + '<button id="playBtn" type="button">▶</button>'
-
-      + '<span class="time" id="currentTime">00:00</span>'
-
-      + '<input class="progress" id="progress" type="range"'
-      + ' min="0" max="100" value="0" step="0.1">'
-
-      + '<span class="time" id="duration">00:00</span>'
-
-      + '<input class="volume" id="volume" type="range"'
-      + ' min="0" max="1" value="1" step="0.05">'
-
-      + '<button id="muteBtn" type="button">🔊</button>'
-
-      + '<button id="fullBtn" type="button">⛶</button>'
-
-      + '</div>'
-
-      + '</div>'
-
-      + '<scr' + 'ipt>'
-
-      + '(function(){'
-      + '"use strict";'
-
-      + '  var v = document.getElementById("v");'
-      + '  var player = document.getElementById("player");'
-      + '  var playBtn = document.getElementById("playBtn");'
-      + '  var muteBtn = document.getElementById("muteBtn");'
-      + '  var fullBtn = document.getElementById("fullBtn");'
-      + '  var progress = document.getElementById("progress");'
-      + '  var volume = document.getElementById("volume");'
-      + '  var currentTimeEl = document.getElementById("currentTime");'
-      + '  var durationEl = document.getElementById("duration");'
-      + '  var loading = document.getElementById("loading");'
-
-      + '  var url = ' + urlJson + ';'
-      + '  var resume = ' + resumeNum + ';'
-      + '  var isM3U8 = ' + (isM3U8 ? 'true' : 'false') + ';'
-
-      /* ---------- 时间格式化 ---------- */
-
-      + '  function formatTime(sec){'
-      + '    if(!isFinite(sec) || sec < 0) sec = 0;'
-      + '    var m = Math.floor(sec / 60);'
-      + '    var s = Math.floor(sec % 60);'
-      + '    return (m < 10 ? "0" : "") + m + ":"'
-      + '      + (s < 10 ? "0" : "") + s;'
-      + '  }'
-
-      /* ---------- 恢复进度 ---------- */
-
-      + '  function applyResume(){'
-      + '    if(resume > 0 && isFinite(v.duration) &&'
-      + '       resume < v.duration - 1){'
-      + '      try {'
-      + '        v.currentTime = resume;'
-      + '      } catch(e){}'
-      + '    }'
-      + '  }'
-
-      /* ---------- 播放 / 暂停 ---------- */
-
-      + '  playBtn.addEventListener("click", function(){'
-      + '    if(v.paused){'
-      + '      v.play().catch(function(){});'
-      + '    }else{'
-      + '      v.pause();'
-      + '    }'
-      + '  });'
-
-      + '  v.addEventListener("play", function(){'
-      + '    playBtn.textContent = "❚❚";'
-      + '  });'
-
-      + '  v.addEventListener("pause", function(){'
-      + '    playBtn.textContent = "▶";'
-      + '  });'
-
-      /* ---------- 进度条 ---------- */
-
-      + '  v.addEventListener("loadedmetadata", function(){'
-      + '    durationEl.textContent = formatTime(v.duration);'
-      + '    applyResume();'
-      + '  });'
-
-      + '  v.addEventListener("durationchange", function(){'
-      + '    if(isFinite(v.duration)){'
-      + '      durationEl.textContent = formatTime(v.duration);'
-      + '    }'
-      + '  });'
-
-      + '  v.addEventListener("timeupdate", function(){'
-      + '    currentTimeEl.textContent = formatTime(v.currentTime);'
-
-      + '    if(isFinite(v.duration) && v.duration > 0){'
-      + '      progress.value = (v.currentTime / v.duration) * 100;'
-      + '    }'
-      + '  });'
-
-      + '  progress.addEventListener("input", function(){'
-      + '    if(isFinite(v.duration) && v.duration > 0){'
-      + '      v.currentTime = (progress.value / 100) * v.duration;'
-      + '    }'
-      + '  });'
-
-      /* ---------- 音量 ---------- */
-
-      + '  volume.addEventListener("input", function(){'
-      + '    v.volume = parseFloat(volume.value);'
-      + '    v.muted = v.volume === 0;'
-      + '    muteBtn.textContent = v.muted ? "🔇" : "🔊";'
-      + '  });'
-
-      + '  muteBtn.addEventListener("click", function(){'
-      + '    v.muted = !v.muted;'
-      + '    muteBtn.textContent = v.muted ? "🔇" : "🔊";'
-      + '  });'
-
-      /* ---------- 全屏 ---------- */
-
-      + '  fullBtn.addEventListener("click", function(){'
-      + '    try {'
-
-      + '      if(document.fullscreenElement){'
-      + '        document.exitFullscreen();'
-
-      + '      }else if(player.requestFullscreen){'
-      + '        player.requestFullscreen();'
-
-      + '      }else if(v.webkitEnterFullscreen){'
-      + '        v.webkitEnterFullscreen();'
-      + '      }'
-
-      + '    } catch(e){}'
-      + '  });'
-
-      /* ---------- 加载视频 ---------- */
-
-      + '  if(isM3U8 && typeof Hls !== "undefined" && Hls.isSupported()){'
-
-      + '    var hls = new Hls({'
-      + '      enableWorker:true,'
-      + '      startFragPrefetch:true'
-      + '    });'
-
-      + '    hls.loadSource(url);'
-      + '    hls.attachMedia(v);'
-
-      + '    hls.on(Hls.Events.MANIFEST_PARSED, function(){'
-      + '      loading.style.display = "none";'
-      + '      applyResume();'
-      + '    });'
-
-      + '    hls.on(Hls.Events.ERROR, function(evt, data){'
-
-      + '      if(!data.fatal) return;'
-
-      + '      if(data.type === Hls.ErrorTypes.NETWORK_ERROR){'
-      + '        hls.startLoad();'
-
-      + '      }else if(data.type === Hls.ErrorTypes.MEDIA_ERROR){'
-      + '        hls.recoverMediaError();'
-
-      + '      }else{'
-      + '        hls.destroy();'
-      + '      }'
-
-      + '    });'
-
-      + '  }else{'
-
-      + '    v.src = url;'
-
-      + '    v.addEventListener("loadedmetadata", function(){'
-      + '      loading.style.display = "none";'
-      + '    });'
-
-      + '  }'
-
-      /* ---------- 定时把进度上报给父页面 ---------- */
-
-      + '  setInterval(function(){'
-
-      + '    if(v.currentTime > 0){'
-
-      + '      try {'
-
-      + '        parent.postMessage({'
-      + '          type:"progress",'
-      + '          url:url,'
-      + '          time:v.currentTime'
-      + '        }, "*");'
-
-      + '      } catch(e){}'
-
-      + '    }'
-
-      + '  }, 2000);'
-
-      + '})();'
-
-      + '</scr' + 'ipt>'
-
-      + '</body></html>';
-
-    return html;
-  }
-
-  /* ---------- 加载视频：重建 iframe ---------- */
-
-  function loadVideoFromEncoded(encStr) {
-
-    var url = decodeBase64(encStr.trim());
-
-    if (!url) return;
-
-    setActiveButton(encStr);
-
-    var resume = loadProgress(url);
-    var html = buildPlayerHtml(url, resume);
-
-    /* 清掉旧 iframe，创建新的 */
-
-    playerContainer.innerHTML = '';
-
-    var iframe = document.createElement('iframe');
-
-    iframe.setAttribute(
-      'allow',
-      'autoplay; fullscreen; encrypted-media; picture-in-picture'
-    );
-
-    iframe.setAttribute('allowfullscreen', 'true');
-    iframe.setAttribute('webkitallowfullscreen', 'true');
-    iframe.setAttribute('mozallowfullscreen', 'true');
-
-    /*
-     * sandbox 不给 allow-same-origin，
-     * 让 iframe 拥有独立不透明源，
-     * 小米主页面注入的脚本无法访问它的 DOM。
-     */
-
-    iframe.setAttribute('sandbox', 'allow-scripts');
-
-    iframe.setAttribute('srcdoc', html);
-
-    playerContainer.appendChild(iframe);
-  }
-
-  /* ---------- 接收 iframe 上报的进度 ---------- */
-
-  window.addEventListener('message', function (e) {
-
-    if (
-      e.data &&
-      e.data.type === 'progress' &&
-      e.data.url
-    ) {
-      saveProgress(e.data.url, e.data.time);
-    }
-
-  });
-
-  /* ---------- 绑定按钮 ---------- */
-
-  for (var i = 0; i < buttons.length; i++) {
-
-    (function (btn) {
-
-      btn.addEventListener('click', function () {
-        loadVideoFromEncoded(btn.dataset.enc.trim());
-      });
-
-    })(buttons[i]);
-
-  }
-
-  /* ---------- 首屏加载第一个视频（不自动播放） ---------- */
-
-  if (buttons.length) {
-    loadVideoFromEncoded(buttons[0].dataset.enc.trim());
-  }
-
-})();
+  video.controls = true;
+
+  video.removeEventListener('timeupdate', video._saveHandler);
+  video._saveHandler = ()=>saveProgress(url, video.currentTime);
+  video.addEventListener('timeupdate', video._saveHandler);
+}
+
+function loadVideoFromEncoded(encStr){
+  const url = decodeBase64(encStr.trim());
+  if(!url) return;
+  const isM3U8 = url.includes(".m3u8");
+  setActiveButton(encStr);
+  showLoading();
+  const resumeTime = loadProgress(url);
+  loadVideo(url, resumeTime, isM3U8);
+}
+
+loadVideoFromEncoded(buttons[0].dataset.enc.trim());
+
+buttons.forEach(btn => {
+  btn.addEventListener('click', ()=>loadVideoFromEncoded(btn.dataset.enc.trim()));
+});
+
+video.addEventListener('playing', hideLoading);
+video.addEventListener('canplay', hideLoading);
 </script>
-
 </body>
 </html>
