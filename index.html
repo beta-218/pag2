@@ -35,11 +35,18 @@
   .video-container {
     position: relative;
     width: 100%;
-  }
-  video {
-    width: 100%;
-    height: auto;
+    padding-bottom: 56.25%; /* 16:9 占位 */
+    background: #000;
     border-radius: 12px;
+    overflow: hidden;
+  }
+  .video-container iframe {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
     background: #000;
   }
   .buffer-tips {
@@ -47,53 +54,6 @@
     color: rgba(255, 255, 255, 0.4);
     margin-top: 8px;
     text-align: center;
-  }
-  .loading-overlay {
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    background: rgba(0,0,0,0.6);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    flex-direction: column;
-    pointer-events: none;
-    border-radius: 12px;
-  }
-  .loader {
-    width: 40px;
-    height: 40px;
-    border: 3px solid rgba(255, 255, 255, 0.2);
-    border-top-color: #00ff88;
-    border-radius: 50%;
-    animation: spin 1s linear infinite, pulse 1.5s ease-in-out infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(0,255,136,0.6); }
-    50% { box-shadow: 0 0 15px 5px rgba(0,255,136,0.3); }
-  }
-  .loading-text {
-    margin-top: 10px;
-    font-size: 14px;
-    color: #00ff88;
-    letter-spacing: 1px;
-    display: flex;
-    align-items: center;
-  }
-  .dots span {
-    opacity: 0;
-    color: #00ff88;
-    text-shadow: 0 0 5px #00ff88, 0 0 10px #00ff88;
-    animation: blink 1.5s infinite;
-  }
-  .dots span:nth-child(1) { animation-delay: 0s; }
-  .dots span:nth-child(2) { animation-delay: 0.3s; }
-  .dots span:nth-child(3) { animation-delay: 0.6s; }
-  @keyframes blink {
-    0%, 20% { opacity: 0; }
-    30%, 80% { opacity: 1; }
-    100% { opacity: 0; }
   }
   .video-list {
     display: flex;
@@ -115,22 +75,12 @@
   .video-button:hover { background-color: #555; }
   .video-button.active { background-color: #00c300; }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
 </head>
 <body>
 <div class="content-wrapper">
   <h1>🎬 为避免财产损失，请勿相信视频中的广告</h1>
-  <div class="video-container">
-    <!-- 严格保持你原本的标签写法，防浏览器劫持，让进度条回归底部 -->
-    <video id="video" playsinline webkit-playsinline preload="auto" controls></video>
-    <div class="loading-overlay" id="loadingOverlay">
-      <div class="loader"></div>
-      <div class="loading-text">
-        正在加载视频<span class="dots"><span>.</span><span>.</span><span>.</span></span>
-      </div>
-    </div>
-  </div>
-  <div class="buffer-tips">如遇卡顿，请尝试暂停缓冲几秒</div>
+  <div class="video-container" id="playerContainer"></div>
+  <div class="buffer-tips">如遇卡顿，请尝试暂停缓冲几秒 · 点击播放按钮开始观看</div>
 </div>
 
 <div class="video-list" id="videoList">
@@ -152,15 +102,10 @@
 (function () {
   'use strict';
 
-  var video = document.getElementById('video');
   var buttons = document.querySelectorAll('.video-button');
-  var loadingOverlay = document.getElementById('loadingOverlay');
+  var playerContainer = document.getElementById('playerContainer');
 
-  var hls = null;
-  var currentUrl = '';
-  var pendingResumeTime = 0;
-  var activeNativeHandler = null;
-
+  /* ---------- 进度存取（主页面负责，iframe 只上报） ---------- */
   function saveProgress(url, time) {
     if (!url || !isFinite(time)) return;
     try { localStorage.setItem('progress_' + url, time.toFixed(1)); } catch (e) {}
@@ -172,6 +117,13 @@
     } catch (e) { return 0; }
   }
 
+  /* ---------- Base64 ---------- */
+  function decodeBase64(str) {
+    try { return atob(str.replace(/[\r\n\s]/g, '')); }
+    catch (e) { return ''; }
+  }
+
+  /* ---------- 按钮状态 ---------- */
   function setActiveButton(enc) {
     for (var i = 0; i < buttons.length; i++) {
       var b = buttons[i];
@@ -179,118 +131,101 @@
       else b.classList.remove('active');
     }
   }
-  function showLoading() { loadingOverlay.style.display = 'flex'; }
-  function hideLoading() { loadingOverlay.style.display = 'none'; }
 
-  function decodeBase64(str) {
-    try { return atob(str.replace(/[\r\n\s]/g, '')); }
-    catch (e) { return ''; }
+  /* ---------- 构造 iframe 内的播放器 HTML ---------- */
+  function buildPlayerHtml(url, resumeTime) {
+    var isM3U8 = url.indexOf('.m3u8') !== -1;
+    var urlJson = JSON.stringify(url);
+    var resumeNum = (isFinite(resumeTime) && resumeTime > 0) ? resumeTime : 0;
+
+    var html = ''
+      + '<!DOCTYPE html>'
+      + '<html lang="zh-CN"><head><meta charset="UTF-8">'
+      + '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+      + '<style>'
+      + 'html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden;}'
+      + 'video{width:100%;height:100%;display:block;background:#000;outline:none;}'
+      + '</style>'
+      + '<scr' + 'ipt src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></scr' + 'ipt>'
+      + '</head><body>'
+      // 这里同样保持你原始的标签写法：playsinline + webkit-playsinline + preload=auto + controls
+      + '<video id="v" playsinline webkit-playsinline preload="auto" controls></video>'
+      + '<scr' + 'ipt>'
+      + '(function(){'
+      + '  var v = document.getElementById("v");'
+      + '  var url = ' + urlJson + ';'
+      + '  var resume = ' + resumeNum + ';'
+      + '  var isM3U8 = ' + (isM3U8 ? 'true' : 'false') + ';'
+
+      + '  function applyResume(){'
+      + '    if(resume > 0 && isFinite(v.duration) && resume < v.duration - 1){'
+      + '      try { v.currentTime = resume; } catch(e){}'
+      + '    }'
+      + '  }'
+
+      + '  if(isM3U8 && typeof Hls !== "undefined" && Hls.isSupported()){'
+      + '    var hls = new Hls({enableWorker:true, startFragPrefetch:true});'
+      + '    hls.loadSource(url);'
+      + '    hls.attachMedia(v);'
+      + '    hls.on(Hls.Events.MANIFEST_PARSED, applyResume);'
+      + '    hls.on(Hls.Events.ERROR, function(evt, data){'
+      + '      if(!data.fatal) return;'
+      + '      if(data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();'
+      + '      else if(data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();'
+      + '      else hls.destroy();'
+      + '    });'
+      + '  } else {'
+      + '    v.src = url;'
+      + '    v.addEventListener("loadedmetadata", applyResume);'
+      + '  }'
+
+      // 不自动播放，交给用户手动点击
+
+      // 定时把进度上报给父页面
+      + '  setInterval(function(){'
+      + '    if(v.currentTime > 0){'
+      + '      try { parent.postMessage({type:"progress", url:url, time:v.currentTime}, "*"); } catch(e){}'
+      + '    }'
+      + '  }, 2000);'
+      + '})();'
+      + '</scr' + 'ipt>'
+      + '</body></html>';
+
+    return html;
   }
 
-  function applyResumeTime(t) {
-    if (!t || !isFinite(t) || t <= 0) return;
-    var d = video.duration;
-    if (isFinite(d) && d > 0 && t >= d - 1) return;
-    try { video.currentTime = t; } catch (e) {}
-  }
-
-  function destroyHls() {
-    if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
-  }
-  function resetVideoElement() {
-    try { video.pause(); } catch (e) {}
-    if (activeNativeHandler) {
-      video.removeEventListener('loadedmetadata', activeNativeHandler);
-      activeNativeHandler = null;
-    }
-    video.removeAttribute('src');
-    try { video.load(); } catch (e) {}
-  }
-
-  function loadVideo(url, resumeTime, isM3U8) {
-    currentUrl = url;
-    pendingResumeTime = resumeTime || 0;
-
-    if (video._saveHandler) {
-      video.removeEventListener('timeupdate', video._saveHandler);
-    }
-
-    destroyHls();
-    resetVideoElement();
-    showLoading();
-
-    // 关键：iOS Safari 不支持 MSE，Hls.isSupported() 为 false，
-    // 这时必须交给系统原生 HLS 播放，否则 iPhone 会黑屏
-    var canUseHlsJs = isM3U8 &&
-                      typeof Hls !== 'undefined' &&
-                      Hls.isSupported();
-
-    if (canUseHlsJs) {
-      hls = new Hls({
-        enableWorker: true,
-        startFragPrefetch: true
-      });
-      hls.loadSource(url);
-      hls.attachMedia(video);
-
-      hls.on(Hls.Events.MANIFEST_PARSED, function () {
-        hideLoading();
-        applyResumeTime(pendingResumeTime);
-        // 不自动播放，交给用户手动点播放
-      });
-
-      hls.on(Hls.Events.ERROR, function (event, data) {
-        if (!data.fatal) return;
-        switch (data.type) {
-          case Hls.ErrorTypes.NETWORK_ERROR:
-            hls.startLoad();
-            break;
-          case Hls.ErrorTypes.MEDIA_ERROR:
-            hls.recoverMediaError();
-            break;
-          default:
-            destroyHls();
-            hideLoading();
-            break;
-        }
-      });
-
-    } else {
-      // 原生播放（iOS Safari / 旧安卓 / 直接 mp4）
-      activeNativeHandler = function () {
-        video.removeEventListener('loadedmetadata', activeNativeHandler);
-        activeNativeHandler = null;
-        hideLoading();
-        applyResumeTime(pendingResumeTime);
-        // 不自动播放
-      };
-      video.addEventListener('loadedmetadata', activeNativeHandler);
-      video.src = url;
-    }
-
-    // 关键：动态开启 controls，防浏览器劫持（保持你原本的方法）
-    video.controls = true;
-
-    video._saveHandler = function () {
-      saveProgress(currentUrl, video.currentTime);
-    };
-    video.addEventListener('timeupdate', video._saveHandler);
-  }
-
+  /* ---------- 加载视频：重建 iframe ---------- */
   function loadVideoFromEncoded(encStr) {
     var url = decodeBase64(encStr.trim());
     if (!url) return;
-    var isM3U8 = url.indexOf('.m3u8') !== -1;
+
     setActiveButton(encStr);
-    showLoading();
-    var resumeTime = loadProgress(url);
-    loadVideo(url, resumeTime, isM3U8);
+
+    var resume = loadProgress(url);
+    var html = buildPlayerHtml(url, resume);
+
+    // 清掉旧 iframe，创建新的
+    playerContainer.innerHTML = '';
+    var iframe = document.createElement('iframe');
+    iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
+    iframe.setAttribute('allowfullscreen', 'true');
+    iframe.setAttribute('webkitallowfullscreen', 'true');
+    iframe.setAttribute('mozallowfullscreen', 'true');
+    // sandbox 不给 allow-same-origin，让 iframe 拥有独立不透明源，
+    // 小米主页面注入的脚本无法访问它的 DOM
+    iframe.setAttribute('sandbox', 'allow-scripts');
+    iframe.setAttribute('srcdoc', html);
+    playerContainer.appendChild(iframe);
   }
 
-  video.addEventListener('playing', hideLoading);
-  video.addEventListener('canplay', hideLoading);
-  video.addEventListener('error', hideLoading);
+  /* ---------- 接收 iframe 上报的进度 ---------- */
+  window.addEventListener('message', function (e) {
+    if (e.data && e.data.type === 'progress' && e.data.url) {
+      saveProgress(e.data.url, e.data.time);
+    }
+  });
 
+  /* ---------- 绑定按钮 ---------- */
   for (var i = 0; i < buttons.length; i++) {
     (function (btn) {
       btn.addEventListener('click', function () {
@@ -299,6 +234,7 @@
     })(buttons[i]);
   }
 
+  /* ---------- 首屏加载第一个视频（不自动播放） ---------- */
   if (buttons.length) {
     loadVideoFromEncoded(buttons[0].dataset.enc.trim());
   }
