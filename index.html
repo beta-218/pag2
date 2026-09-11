@@ -16,7 +16,7 @@
     justify-content: flex-start;
     align-items: center;
     min-height: 100vh;
-    padding: 80px 20px 20px; /* 恢复原页面顶部距离 */
+    padding: 80px 20px 20px;
   }
   .content-wrapper {
     display: flex;
@@ -25,7 +25,6 @@
     width: 100%;
     max-width: 90vw;
   }
-  /* 提示文字：低调缩小，不占视觉中心 */
   h1 {
     font-size: 13px;
     font-weight: normal;
@@ -43,7 +42,6 @@
     border-radius: 12px;
     background: #000;
   }
-  /* 播放器下方的卡顿提示 */
   .buffer-tips {
     font-size: 11px;
     color: rgba(255, 255, 255, 0.4);
@@ -123,8 +121,8 @@
 <div class="content-wrapper">
   <h1>🎬 为避免财产损失，请勿相信视频中的广告</h1>
   <div class="video-container">
-    <!-- 严格保持你原本的标签写法，防浏览器劫持，让进度条回归底部 -->
-    <video id="video" playsinline webkit-playsinline preload="auto" controls></video>
+    <!-- 1. 移除 preload="auto"，添加 preload="metadata" 限制小米等安卓浏览器的预加载自动播放 -->
+    <video id="video" playsinline webkit-playsinline preload="metadata" controls></video>
     <div class="loading-overlay" id="loadingOverlay">
       <div class="loader"></div>
       <div class="loading-text">
@@ -147,7 +145,6 @@
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTA2L0dUU2pXWTViL2luZGV4Lm0zdTg=">视频9</button>
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTAyL2k3UFJkNHBPL2luZGV4Lm0zdTg=">视频10</button>
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwODE5L3EzSVp1bDd4L2luZGV4Lm0zdTg=">视频11</button>
-  <!-- 保持修复好的视频12 Base64 链接 -->
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTEwL3FyRjBXM2hSL2luZGV4Lm0zdTg=">视频12</button>
 </div>
 
@@ -168,7 +165,7 @@ function decodeBase64(str){
   catch(e){ return ""; }
 }
 
-function loadVideo(url, resumeTime, isM3U8){
+function loadVideo(url, resumeTime, isM3U8, autoPlay = false){
   video.pause();
   video.removeAttribute('src');
   video.load();
@@ -178,8 +175,10 @@ function loadVideo(url, resumeTime, isM3U8){
     hls = null; 
   }
 
-  // 恢复最快网速加载策略，不设置限制
-  if(isM3U8 && typeof Hls !== 'undefined'){
+  // 关键修复：iOS Safari 原生支持 m3u8。判断能够原生播放 m3u8 时优先走原生流，避免 Hls.js 的兼容问题
+  const canNativePlay = video.canPlayType('application/vnd.apple.mpegurl');
+
+  if(isM3U8 && typeof Hls !== 'undefined' && Hls.isSupported() && !canNativePlay){
     hls = new Hls({
       enableWorker: true,
       startFragPrefetch: true
@@ -189,7 +188,9 @@ function loadVideo(url, resumeTime, isM3U8){
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       video.currentTime = resumeTime;
-      video.play().catch(()=>{});
+      if(autoPlay){
+        video.play().catch(()=>{});
+      }
       hideLoading();
     });
 
@@ -211,11 +212,14 @@ function loadVideo(url, resumeTime, isM3U8){
     });
 
   } else {
+    // 适用于原生支持 m3u8 的 iOS Safari / Mac Safari
     video.src = url;
     video.addEventListener('loadedmetadata', function onLoaded(){
       video.removeEventListener('loadedmetadata', onLoaded);
       video.currentTime = resumeTime;
-      video.play().catch(()=>{});
+      if(autoPlay){
+        video.play().catch(()=>{});
+      }
       hideLoading();
     });
   }
@@ -227,20 +231,24 @@ function loadVideo(url, resumeTime, isM3U8){
   video.addEventListener('timeupdate', video._saveHandler);
 }
 
-function loadVideoFromEncoded(encStr){
+function loadVideoFromEncoded(encStr, autoPlay = false){
   const url = decodeBase64(encStr.trim());
   if(!url) return;
   const isM3U8 = url.includes(".m3u8");
   setActiveButton(encStr);
   showLoading();
   const resumeTime = loadProgress(url);
-  loadVideo(url, resumeTime, isM3U8);
+  loadVideo(url, resumeTime, isM3U8, autoPlay);
 }
 
-loadVideoFromEncoded(buttons[0].dataset.enc.trim());
+// 首次打开页面：传递 autoPlay = false，防止小米浏览器等在页面初始化时直接自动播放
+loadVideoFromEncoded(buttons[0].dataset.enc.trim(), false);
 
 buttons.forEach(btn => {
-  btn.addEventListener('click', ()=>loadVideoFromEncoded(btn.dataset.enc.trim()));
+  btn.addEventListener('click', ()=>{
+    // 用户手动点击列表切换视频：传递 autoPlay = true 允许直接播放
+    loadVideoFromEncoded(btn.dataset.enc.trim(), true);
+  });
 });
 
 video.addEventListener('playing', hideLoading);
