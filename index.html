@@ -25,7 +25,7 @@
     .center-play { position:absolute; top:50%; left:50%; z-index:3; display:flex; align-items:center; justify-content:center; width:64px; height:64px; transform:translate(-50%,-50%); border:2px solid rgba(255,255,255,.85); border-radius:50%; background:rgba(0,0,0,.5); -webkit-tap-highlight-color:transparent; }
     .center-play svg { width:30px; height:30px; margin-left:4px; fill:#fff; }
     .center-play.hidden { display:none; }
-    .loading-overlay { position:absolute; inset:0; z-index:4; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; background:rgba(0,0,0,.6); }
+    .loading-overlay { position:absolute; top:0; right:0; bottom:0; left:0; z-index:4; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; background:rgba(0,0,0,.6); }
     .loader { width:40px; height:40px; border:3px solid rgba(255,255,255,.2); border-top-color:#00ff88; border-radius:50%; animation:spin 1s linear infinite; }
     @keyframes spin { to { transform:rotate(360deg); } }
     .loading-text { margin-top:10px; color:#00ff88; font-size:14px; }
@@ -41,7 +41,7 @@
     <div class="video-container" id="videoContainer">
       <div class="video-wrap">
         <canvas id="videoCanvas" aria-hidden="true"></canvas>
-        <video id="video" playsinline webkit-playsinline preload="metadata" aria-label="视频播放器"></video>
+        <video id="video" playsinline webkit-playsinline preload="metadata" disablepictureinpicture controlslist="nodownload noremoteplayback" aria-label="视频播放器"></video>
       </div>
       <button class="center-play" id="centerPlay" type="button" aria-label="播放"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
       <div class="controls-overlay" id="controlsOverlay"><div class="controls-bar">
@@ -66,7 +66,8 @@
     var ua=navigator.userAgent||'', isIOS=/iPad|iPhone|iPod/.test(ua)||((navigator.platform==='MacIntel')&&navigator.maxTouchPoints>1);
     var video=isIOS ? nativeVideo : document.createElement('video');
     var ctx=canvas.getContext('2d'), hls=null, drawId=null;
-    if (!isIOS) { nativeVideo.style.display='none'; canvas.style.cssText='position:absolute;top:0;right:0;bottom:0;left:0;width:100%;height:100%;display:block;background:#000;'; video.setAttribute('playsinline',''); video.setAttribute('webkit-playsinline',''); video.preload='auto'; }
+    if (isIOS) { nativeVideo.setAttribute('playsinline',''); nativeVideo.setAttribute('webkit-playsinline',''); nativeVideo.setAttribute('x-webkit-airplay','deny'); }
+    else { nativeVideo.style.display='none'; canvas.style.cssText='position:absolute;top:0;right:0;bottom:0;left:0;width:100%;height:100%;display:block;background:#000;'; video.setAttribute('playsinline',''); video.setAttribute('webkit-playsinline',''); video.preload='auto'; }
     var currentUrl='', resumeAt=0, seeking=false, hideTimer;
     function fmt(n) { n=isFinite(n)&&n>0?Math.floor(n):0; return Math.floor(n/60)+':'+(n%60<10?'0':'')+n%60; }
     function save() { try { if(currentUrl&&isFinite(video.currentTime)) localStorage.setItem('progress_'+currentUrl,video.currentTime.toFixed(1)); } catch(e) {} }
@@ -75,6 +76,7 @@
     function syncPlay() { var paused=video.paused; playIcon.style.display=paused?'block':'none'; pauseIcon.style.display=paused?'none':'block'; center.className=paused?'center-play':'center-play hidden'; if(paused) showControls(); }
     function syncTime() { var d=video.duration, c=video.currentTime; if(isFinite(d)&&d>0) { if(!seeking) range.value=Math.round(c/d*10000); time.textContent=fmt(c)+' / '+fmt(d); } }
     function hideLoading(){ loading.style.display='none'; }
+    function showError(){ loading.innerHTML='<div class="loading-text">视频无法播放，请稍后重试</div>'; loading.style.display='flex'; }
     function resizeCanvas() { if (!isIOS) { var r=container.getBoundingClientRect(); canvas.width=Math.max(1,Math.round(r.width)); canvas.height=Math.max(1,Math.round(r.width*9/16)); } }
     function drawFrame() { if (isIOS||video.readyState<2||!video.videoWidth||!video.videoHeight) return; var cw=canvas.width,ch=canvas.height,s=Math.min(cw/video.videoWidth,ch/video.videoHeight),w=video.videoWidth*s,h=video.videoHeight*s; ctx.fillStyle='#000';ctx.fillRect(0,0,cw,ch);try{ctx.drawImage(video,(cw-w)/2,(ch-h)/2,w,h);}catch(e){} }
     function drawLoop() { drawFrame(); drawId=requestAnimationFrame(drawLoop); }
@@ -83,13 +85,14 @@
     function play() { /* 此调用必须直接位于用户点击事件中，iOS 才允许有声播放。 */ var result=video.play(); if(result&&result.catch) result.catch(function(){ syncPlay(); }); }
     function toggle(e) { if(e) e.stopPropagation(); if(video.paused) play(); else video.pause(); }
     function destroyHls() { if (hls) { try { hls.destroy(); } catch(e) {} hls=null; } }
-    function load(encoded) { var url; try { url=atob(encoded.replace(/[\r\n\s]/g,'')); } catch(e) { return; } currentUrl=url; resumeAt=stored(url); loading.style.display='flex'; destroyHls(); video.pause(); video.removeAttribute('src'); video.load(); resizeCanvas(); startDraw();
+    function load(encoded) { var url; try { url=atob(encoded.replace(/[\r\n\s]/g,'')); } catch(e) { return; } currentUrl=url; resumeAt=stored(url); loading.innerHTML='<div class="loader"></div><div class="loading-text">正在加载视频...</div>'; loading.style.display='flex'; destroyHls(); video.pause(); video.removeAttribute('src'); video.load(); resizeCanvas(); startDraw();
       if (!isIOS&&typeof Hls!=='undefined'&&Hls.isSupported()) { hls=new Hls({enableWorker:true,startFragPrefetch:true}); hls.loadSource(url); hls.attachMedia(video); hls.on(Hls.Events.MANIFEST_PARSED,function(){hideLoading();tryResume();syncTime();drawFrame();}); hls.on(Hls.Events.ERROR,function(evt,data){if(!data.fatal)return;if(data.type===Hls.ErrorTypes.NETWORK_ERROR)hls.startLoad();else if(data.type===Hls.ErrorTypes.MEDIA_ERROR)hls.recoverMediaError();else{destroyHls();loading.style.display='none';}}); }
       else { video.src=url; video.load(); }
       for(var i=0;i<buttons.length;i++) buttons[i].className=buttons[i].getAttribute('data-enc')===encoded?'video-button active':'video-button'; }
     video.addEventListener('loadedmetadata',function(){ hideLoading(); tryResume(); syncTime(); });
-    video.addEventListener('canplay',function(){hideLoading();drawFrame();}); video.addEventListener('loadeddata',drawFrame); video.addEventListener('error',function(){ loading.style.display='none'; });
+    video.addEventListener('canplay',function(){hideLoading();drawFrame();}); video.addEventListener('loadeddata',drawFrame); video.addEventListener('error',showError);
     video.addEventListener('play',syncPlay); video.addEventListener('pause',syncPlay); video.addEventListener('timeupdate',function(){syncTime();save();}); video.addEventListener('ended',syncPlay);
+    video.addEventListener('webkitbeginfullscreen',syncPlay); video.addEventListener('webkitendfullscreen',function(){syncPlay();syncTime();});
     center.addEventListener('click',toggle); playButton.addEventListener('click',toggle);
     range.addEventListener('input',function(){ seeking=true; var d=video.duration; if(isFinite(d)&&d>0) time.textContent=fmt(range.value/10000*d)+' / '+fmt(d); });
     range.addEventListener('change',function(){ var d=video.duration; if(isFinite(d)&&d>0) { try { video.currentTime=range.value/10000*d; } catch(e) {} } seeking=false; });
