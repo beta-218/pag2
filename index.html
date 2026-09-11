@@ -35,20 +35,12 @@
   .video-container {
     position: relative;
     width: 100%;
-    /* 预留 16:9 比例，防止动态注入 video 时页面闪烁 */
-    aspect-ratio: 16 / 9;
-    background: #000;
-    border-radius: 12px;
-    overflow: hidden;
   }
-  /* 针对防劫持 video 的强行内敛样式 */
-  .video-container video {
-    width: 100% !important;
-    height: 100% !important;
-    object-fit: contain !important;
+  video {
+    width: 100%;
+    height: auto;
     border-radius: 12px;
     background: #000;
-    display: block;
   }
   .buffer-tips {
     font-size: 11px;
@@ -67,7 +59,6 @@
     flex-direction: column;
     pointer-events: none;
     border-radius: 12px;
-    z-index: 10;
   }
   .loader {
     width: 40px;
@@ -129,8 +120,8 @@
 <body>
 <div class="content-wrapper">
   <h1>🎬 为避免财产损失，请勿相信视频中的广告</h1>
-  <div class="video-container" id="videoWrapper">
-    <!-- 删除了静态 video 标签，避免页面加载时直接被小米浏览器扫描拦截 -->
+  <div class="video-container">
+    <video id="video" playsinline webkit-playsinline preload="auto" controls></video>
     <div class="loading-overlay" id="loadingOverlay">
       <div class="loader"></div>
       <div class="loading-text">
@@ -157,10 +148,9 @@
 </div>
 
 <script>
-const videoWrapper = document.getElementById('videoWrapper');
+const video = document.getElementById('video');
 const buttons = document.querySelectorAll('.video-button');
 const loadingOverlay = document.getElementById('loadingOverlay');
-let video = null;
 let hls = null;
 
 function saveProgress(url, time){ localStorage.setItem("progress_" + url, time.toFixed(1)); }
@@ -174,43 +164,20 @@ function decodeBase64(str){
   catch(e){ return ""; }
 }
 
-// 动态创建带有防劫持全套属性的 Video 节点
-function createAntiHijackVideo() {
-  if (video) {
-    video.pause();
-    if (video.parentNode) video.parentNode.removeChild(video);
-  }
-  const v = document.createElement('video');
-  v.id = 'video';
-  v.controls = true;
-  v.setAttribute('playsinline', 'true');
-  v.setAttribute('webkit-playsinline', 'true');
-  v.setAttribute('x5-playsinline', 'true');
-  v.setAttribute('x5-video-player-type', 'h5-page'); // 使用 h5-page 彻底禁用原生弹层工具栏
-  v.setAttribute('x5-video-player-fullscreen', 'false');
-  v.setAttribute('x5-video-orientation', 'portraint');
-  v.setAttribute('x-webkit-airplay', 'allow');
-  v.setAttribute('preload', 'auto');
-  
-  // 插入 DOM
-  videoWrapper.insertBefore(v, loadingOverlay);
-  
-  v.addEventListener('playing', hideLoading);
-  v.addEventListener('canplay', hideLoading);
-  return v;
-}
+function loadVideo(url, resumeTime, isM3U8, userInitiated = false){
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
 
-function loadVideo(url, resumeTime, isM3U8, autoPlay = false){
   if(hls){ 
     hls.destroy(); 
     hls = null; 
   }
 
-  // 每次加载都重新生成纯净 DOM 节点，打断浏览器的长连接劫持监听
-  video = createAntiHijackVideo();
+  // 判断 Safari 原生支持 m3u8
+  const canNativePlay = video.canPlayType('application/vnd.apple.mpegurl') || video.canPlayType('application/x-mpegURL');
 
-  const canNativePlay = video.canPlayType('application/vnd.apple.mpegurl');
-
+  // 安卓 / 桌面端 Chrome：使用 Hls.js 播放
   if(isM3U8 && typeof Hls !== 'undefined' && Hls.isSupported() && !canNativePlay){
     hls = new Hls({
       enableWorker: true,
@@ -221,10 +188,8 @@ function loadVideo(url, resumeTime, isM3U8, autoPlay = false){
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       video.currentTime = resumeTime;
-      if(autoPlay){
+      if (userInitiated) {
         video.play().catch(()=>{});
-      } else {
-        video.pause();
       }
       hideLoading();
     });
@@ -247,42 +212,45 @@ function loadVideo(url, resumeTime, isM3U8, autoPlay = false){
     });
 
   } else {
-    // 适用于 iOS Safari 原生 m3u8
+    // iOS Safari / Mac Safari：走原生 m3u8 播放流程
     video.src = url;
     video.addEventListener('loadedmetadata', function onLoaded(){
       video.removeEventListener('loadedmetadata', onLoaded);
       video.currentTime = resumeTime;
-      if(autoPlay){
+      if (userInitiated) {
         video.play().catch(()=>{});
-      } else {
-        video.pause();
       }
       hideLoading();
     });
   }
 
+  video.controls = true;
+
+  video.removeEventListener('timeupdate', video._saveHandler);
   video._saveHandler = ()=>saveProgress(url, video.currentTime);
   video.addEventListener('timeupdate', video._saveHandler);
 }
 
-function loadVideoFromEncoded(encStr, autoPlay = false){
+function loadVideoFromEncoded(encStr, userInitiated = false){
   const url = decodeBase64(encStr.trim());
   if(!url) return;
   const isM3U8 = url.includes(".m3u8");
   setActiveButton(encStr);
   showLoading();
   const resumeTime = loadProgress(url);
-  loadVideo(url, resumeTime, isM3U8, autoPlay);
+  loadVideo(url, resumeTime, isM3U8, userInitiated);
 }
 
-// 首次打开不自动播放
+// 页面初始化加载第一个视频，不自动调用 play() 避开 iOS 拦截政策
 loadVideoFromEncoded(buttons[0].dataset.enc.trim(), false);
 
 buttons.forEach(btn => {
-  btn.addEventListener('click', ()=>{
-    loadVideoFromEncoded(btn.dataset.enc.trim(), true);
-  });
+  // 用户点击按钮触发，允许自动播放
+  btn.addEventListener('click', ()=>loadVideoFromEncoded(btn.dataset.enc.trim(), true));
 });
+
+video.addEventListener('playing', hideLoading);
+video.addEventListener('canplay', hideLoading);
 </script>
 </body>
 </html>
