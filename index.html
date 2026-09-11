@@ -122,16 +122,7 @@
   <h1>🎬 为避免财产损失，请勿相信视频中的广告</h1>
   <div class="video-container">
     <!-- 严格保持你原本的标签写法，防浏览器劫持，让进度条回归底部 -->
-    <video id="video"
-           playsinline
-           webkit-playsinline
-           x5-playsinline="true"
-           x5-video-player-type="h5"
-           x5-video-player-fullscreen="false"
-           preload="auto"
-           controls
-           controlsList="nodownload noremoteplayback noplaybackrate"
-           disablePictureInPicture></video>
+    <video id="video" playsinline webkit-playsinline preload="auto" controls></video>
     <div class="loading-overlay" id="loadingOverlay">
       <div class="loader"></div>
       <div class="loading-text">
@@ -139,7 +130,7 @@
       </div>
     </div>
   </div>
-  <div class="buffer-tips">如遇卡顿，请尝试暂停缓冲几秒 · 点击播放按钮开始观看</div>
+  <div class="buffer-tips">如遇卡顿，请尝试暂停缓冲几秒</div>
 </div>
 
 <div class="video-list" id="videoList">
@@ -204,10 +195,7 @@
   }
 
   function destroyHls() {
-    if (hls) {
-      try { hls.destroy(); } catch (e) {}
-      hls = null;
-    }
+    if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
   }
   function resetVideoElement() {
     try { video.pause(); } catch (e) {}
@@ -231,8 +219,8 @@
     resetVideoElement();
     showLoading();
 
-    // iOS Safari 不支持 MSE，Hls.isSupported() 为 false，
-    // 这时交给系统原生 HLS 播放（否则会黑屏）
+    // 关键：iOS Safari 不支持 MSE，Hls.isSupported() 为 false，
+    // 这时必须交给系统原生 HLS 播放，否则 iPhone 会黑屏
     var canUseHlsJs = isM3U8 &&
                       typeof Hls !== 'undefined' &&
                       Hls.isSupported();
@@ -248,7 +236,7 @@
       hls.on(Hls.Events.MANIFEST_PARSED, function () {
         hideLoading();
         applyResumeTime(pendingResumeTime);
-        // 不自动播放
+        // 不自动播放，交给用户手动点播放
       });
 
       hls.on(Hls.Events.ERROR, function (event, data) {
@@ -268,6 +256,7 @@
       });
 
     } else {
+      // 原生播放（iOS Safari / 旧安卓 / 直接 mp4）
       activeNativeHandler = function () {
         video.removeEventListener('loadedmetadata', activeNativeHandler);
         activeNativeHandler = null;
@@ -279,6 +268,7 @@
       video.src = url;
     }
 
+    // 关键：动态开启 controls，防浏览器劫持（保持你原本的方法）
     video.controls = true;
 
     video._saveHandler = function () {
