@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>🎬 hello</title>
 <style>
   * { box-sizing: border-box; }
@@ -121,7 +121,7 @@
 <div class="content-wrapper">
   <h1>🎬 为避免财产损失，请勿相信视频中的广告</h1>
   <div class="video-container">
-    <video id="video" playsinline webkit-playsinline preload="auto" controls></video>
+    <video id="video" playsinline webkit-playsinline x-webkit-airplay="allow" preload="auto" controls></video>
     <div class="loading-overlay" id="loadingOverlay">
       <div class="loader"></div>
       <div class="loading-text">
@@ -153,50 +153,104 @@ const buttons = document.querySelectorAll('.video-button');
 const loadingOverlay = document.getElementById('loadingOverlay');
 let hls = null;
 
-function saveProgress(url, time){ localStorage.setItem("progress_" + url, time.toFixed(1)); }
-function loadProgress(url){ const t=parseFloat(localStorage.getItem("progress_" + url)); return isNaN(t)?0:t; }
-function setActiveButton(enc){ buttons.forEach(btn=>btn.classList.toggle('active',btn.dataset.enc.trim()===enc)); }
-function showLoading(){ loadingOverlay.style.display='flex'; }
-function hideLoading(){ loadingOverlay.style.display='none'; }
-
-function decodeBase64(str){
-  try { return atob(str.replace(/[\r\n\s]/g, "")); }
-  catch(e){ return ""; }
+function saveProgress(url, time) {
+  try {
+    localStorage.setItem("progress_" + url, time.toFixed(1));
+  } catch (e) {}
+}
+function loadProgress(url) {
+  try {
+    const t = parseFloat(localStorage.getItem("progress_" + url));
+    return isNaN(t) ? 0 : t;
+  } catch (e) {
+    return 0;
+  }
+}
+function setActiveButton(enc) {
+  buttons.forEach(btn => btn.classList.toggle('active', btn.dataset.enc.trim() === enc));
+}
+function showLoading() {
+  loadingOverlay.style.display = 'flex';
+}
+function hideLoading() {
+  loadingOverlay.style.display = 'none';
 }
 
-function loadVideo(url, resumeTime, isM3U8, userInitiated = false){
+function decodeBase64(str) {
+  try {
+    return atob(str.replace(/[\r\n\s]/g, ""));
+  } catch (e) {
+    return "";
+  }
+}
+
+function destroyHls() {
+  if (hls) {
+    try {
+      hls.destroy();
+    } catch (e) {}
+    hls = null;
+  }
+}
+
+function loadVideo(url, resumeTime, isM3U8) {
   video.pause();
   video.removeAttribute('src');
   video.load();
+  destroyHls();
 
-  if(hls){ 
-    hls.destroy(); 
-    hls = null; 
-  }
+  // 关键核心修复：优先判断 Safari 原生 HLS（iPhone 必走这条）
+  const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') ||
+                       video.canPlayType('application/x-mpegURL');
 
-  // 判断 Safari 原生支持 m3u8
-  const canNativePlay = video.canPlayType('application/vnd.apple.mpegurl') || video.canPlayType('application/x-mpegURL');
+  if (isM3U8 && canNativeHls) {
+    // iOS Safari（包括 iPhone 6）原生支持 HLS，直接用 video.src
+    video.src = url;
 
-  // 安卓 / 桌面端 Chrome：使用 Hls.js 播放
-  if(isM3U8 && typeof Hls !== 'undefined' && Hls.isSupported() && !canNativePlay){
+    const onLoaded = function () {
+      video.removeEventListener('loadedmetadata', onLoaded);
+      if (resumeTime > 0 && resumeTime < (video.duration || Infinity)) {
+        try {
+          video.currentTime = resumeTime;
+        } catch (e) {}
+      }
+      // iOS 需要用户手势才能自动播放，这里尝试播放，失败也不报错
+      video.play().catch(function () {});
+      hideLoading();
+    };
+    video.addEventListener('loadedmetadata', onLoaded);
+
+    // 超时兜底，防止 loadedmetadata 不触发
+    setTimeout(function () {
+      if (loadingOverlay.style.display !== 'none') {
+        hideLoading();
+      }
+    }, 8000);
+
+  } else if (isM3U8 && typeof Hls !== 'undefined' && Hls.isSupported()) {
+    // 非 Safari 浏览器使用 hls.js
     hls = new Hls({
       enableWorker: true,
-      startFragPrefetch: true
+      startFragPrefetch: true,
+      maxBufferLength: 30,
+      maxMaxBufferLength: 60
     });
     hls.loadSource(url);
     hls.attachMedia(video);
 
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      video.currentTime = resumeTime;
-      if (userInitiated) {
-        video.play().catch(()=>{});
+    hls.on(Hls.Events.MANIFEST_PARSED, function () {
+      if (resumeTime > 0) {
+        try {
+          video.currentTime = resumeTime;
+        } catch (e) {}
       }
+      video.play().catch(function () {});
       hideLoading();
     });
 
-    hls.on(Hls.Events.ERROR, function(event, data){
-      if(data.fatal){
-        switch(data.type){
+    hls.on(Hls.Events.ERROR, function (event, data) {
+      if (data.fatal) {
+        switch (data.type) {
           case Hls.ErrorTypes.NETWORK_ERROR:
             hls.startLoad();
             break;
@@ -204,7 +258,7 @@ function loadVideo(url, resumeTime, isM3U8, userInitiated = false){
             hls.recoverMediaError();
             break;
           default:
-            hls.destroy();
+            destroyHls();
             hideLoading();
             break;
         }
@@ -212,45 +266,54 @@ function loadVideo(url, resumeTime, isM3U8, userInitiated = false){
     });
 
   } else {
-    // iOS Safari / Mac Safari：走原生 m3u8 播放流程
+    // 普通 mp4 或其他格式
     video.src = url;
-    video.addEventListener('loadedmetadata', function onLoaded(){
+    video.addEventListener('loadedmetadata', function onLoaded() {
       video.removeEventListener('loadedmetadata', onLoaded);
-      video.currentTime = resumeTime;
-      if (userInitiated) {
-        video.play().catch(()=>{});
+      if (resumeTime > 0) {
+        try {
+          video.currentTime = resumeTime;
+        } catch (e) {}
       }
+      video.play().catch(function () {});
       hideLoading();
     });
   }
 
-  video.controls = true;
-
+  // 保存播放进度
   video.removeEventListener('timeupdate', video._saveHandler);
-  video._saveHandler = ()=>saveProgress(url, video.currentTime);
+  video._saveHandler = function () {
+    if (video.currentTime > 1) {
+      saveProgress(url, video.currentTime);
+    }
+  };
   video.addEventListener('timeupdate', video._saveHandler);
 }
 
-function loadVideoFromEncoded(encStr, userInitiated = false){
+function loadVideoFromEncoded(encStr) {
   const url = decodeBase64(encStr.trim());
-  if(!url) return;
-  const isM3U8 = url.includes(".m3u8");
+  if (!url) return;
+  const isM3U8 = /\.m3u8($|\?)/i.test(url);
   setActiveButton(encStr);
   showLoading();
   const resumeTime = loadProgress(url);
-  loadVideo(url, resumeTime, isM3U8, userInitiated);
+  loadVideo(url, resumeTime, isM3U8);
 }
 
-// 页面初始化加载第一个视频，不自动调用 play() 避开 iOS 拦截政策
-loadVideoFromEncoded(buttons[0].dataset.enc.trim(), false);
+// 默认加载第一个视频
+loadVideoFromEncoded(buttons[0].dataset.enc.trim());
 
-buttons.forEach(btn => {
-  // 用户点击按钮触发，允许自动播放
-  btn.addEventListener('click', ()=>loadVideoFromEncoded(btn.dataset.enc.trim(), true));
+buttons.forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    loadVideoFromEncoded(btn.dataset.enc.trim());
+  });
 });
 
 video.addEventListener('playing', hideLoading);
 video.addEventListener('canplay', hideLoading);
+video.addEventListener('error', function () {
+  hideLoading();
+});
 </script>
 </body>
 </html>
