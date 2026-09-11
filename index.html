@@ -29,10 +29,37 @@
   .canvas-wrap {
     position: relative; width: 100%; padding-bottom: 56.25%;
   }
+  /* video 元素放在 canvas 下面，几乎透明，仅作为数据源 */
+  .video-source {
+    position: absolute !important;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    opacity: 0.01;
+    pointer-events: none;
+    z-index: 1;
+    object-fit: contain;
+  }
   .video-canvas {
     position: absolute; top: 0; left: 0;
     width: 100%; height: 100%;
     display: block; background: #000;
+    z-index: 2;
+  }
+  .center-play {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 64px; height: 64px; border-radius: 50%;
+    background: rgba(0,0,0,0.5);
+    border: 2px solid rgba(255,255,255,0.85);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 5; cursor: pointer;
+    transition: opacity 0.3s, transform 0.3s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .center-play svg { width: 30px; height: 30px; margin-left: 4px; fill: #fff; }
+  .center-play.hidden {
+    opacity: 0; pointer-events: none;
+    transform: translate(-50%, -50%) scale(0.8);
   }
   .controls-overlay {
     position: absolute; left: 0; right: 0; bottom: 0;
@@ -72,22 +99,6 @@
     font-size: 12px; color: #fff;
     font-variant-numeric: tabular-nums; white-space: nowrap;
   }
-  .center-play {
-    position: absolute; top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    width: 64px; height: 64px; border-radius: 50%;
-    background: rgba(0,0,0,0.5);
-    border: 2px solid rgba(255,255,255,0.85);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 5; cursor: pointer;
-    transition: opacity 0.3s, transform 0.3s;
-    -webkit-tap-highlight-color: transparent;
-  }
-  .center-play svg { width: 30px; height: 30px; margin-left: 4px; fill: #fff; }
-  .center-play.hidden {
-    opacity: 0; pointer-events: none;
-    transform: translate(-50%, -50%) scale(0.8);
-  }
   .loading-overlay {
     position: absolute; top: 0; left: 0;
     width: 100%; height: 100%;
@@ -126,6 +137,21 @@
   }
   .video-button:hover { background-color: #555; }
   .video-button.active { background-color: #00c300; }
+  /* 全屏时容器铺满屏幕 */
+  .video-container:fullscreen,
+  .video-container:-webkit-full-screen {
+    border-radius: 0; width: 100vw; height: 100vh; padding-bottom: 0;
+  }
+  .video-container:fullscreen .canvas-wrap,
+  .video-container:-webkit-full-screen .canvas-wrap {
+    height: 100vh; padding-bottom: 0;
+  }
+  .video-container:fullscreen .video-canvas,
+  .video-container:-webkit-full-screen .video-canvas,
+  .video-container:fullscreen .video-source,
+  .video-container:-webkit-full-screen .video-source {
+    height: 100vh;
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
 </head>
@@ -134,6 +160,12 @@
   <h1>🎬 为避免财产损失，请勿相信视频中的广告</h1>
   <div class="video-container" id="videoContainer">
     <div class="canvas-wrap">
+      <!-- video 元素已在 DOM 内，但视觉上几乎不可见 -->
+      <video id="video"
+             class="video-source"
+             playsinline
+             webkit-playsinline
+             preload="auto"></video>
       <canvas class="video-canvas" id="videoCanvas"></canvas>
     </div>
 
@@ -184,9 +216,9 @@
 (function () {
   'use strict';
 
-  /* ========== DOM 引用 ========== */
+  var video = document.getElementById('video');
   var canvas = document.getElementById('videoCanvas');
-  var ctx = canvas.getContext('2d');
+  var ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
   var videoContainer = document.getElementById('videoContainer');
   var centerPlay = document.getElementById('centerPlay');
   var controlsOverlay = document.getElementById('controlsOverlay');
@@ -199,19 +231,14 @@
   var loadingOverlay = document.getElementById('loadingOverlay');
   var buttons = document.querySelectorAll('.video-button');
 
-  /* ========== 核心：video 元素不放进 DOM ========== */
-  var video = document.createElement('video');
-  video.setAttribute('playsinline', '');
-  video.setAttribute('webkit-playsinline', '');
-  video.preload = 'auto';
-  // 关键：不 appendChild 到 document，浏览器 DOM 里看不到 video
-
   var hls = null;
   var currentUrl = '';
   var pendingResumeTime = 0;
   var controlsHideTimer = null;
   var seeking = false;
-  var drawRafId = null;
+  var drawRunning = false;
+  var rvfcHandle = null;
+  var rafHandle = null;
 
   /* ========== 进度存取 ========== */
   function saveProgress(url, time) {
@@ -224,25 +251,47 @@
       return isNaN(t) ? 0 : t;
     } catch (e) { return 0; }
   }
-
-  /* ========== 时间格式化 ========== */
   function formatTime(s) {
     if (!isFinite(s) || s < 0) s = 0;
     var m = Math.floor(s / 60);
     var sec = Math.floor(s % 60);
     return m + ':' + (sec < 10 ? '0' : '') + sec;
   }
+  function decodeBase64(str) {
+    try { return atob(str.replace(/[\r\n\s]/g, '')); }
+    catch (e) { return ''; }
+  }
+  function setActiveButton(enc) {
+    for (var i = 0; i < buttons.length; i++) {
+      var b = buttons[i];
+      if (b.dataset.enc.trim() === enc) b.classList.add('active');
+      else b.classList.remove('active');
+    }
+  }
+  function showLoading() { loadingOverlay.style.display = 'flex'; }
+  function hideLoading() { loadingOverlay.style.display = 'none'; }
 
-  /* ========== Canvas 尺寸 ========== */
-  function resizeCanvas() {
-    var rect = videoContainer.getBoundingClientRect();
-    var w = Math.max(1, Math.round(rect.width));
-    var h = Math.max(1, Math.round(rect.height));
-    if (canvas.width !== w) canvas.width = w;
-    if (canvas.height !== h) canvas.height = h;
+  /* ========== Canvas 尺寸：跟随 video 实际视频尺寸 ========== */
+  function syncCanvasSize() {
+    var cw = video.videoWidth;
+    var ch = video.videoHeight;
+    if (!cw || !ch) {
+      // 视频尺寸未知时按容器宽高比 16:9 兜底
+      var rect = videoContainer.getBoundingClientRect();
+      cw = Math.max(1, Math.round(rect.width));
+      ch = Math.max(1, Math.round(rect.width * 9 / 16));
+    }
+    // 限制最大宽度以节省性能（旧机型）
+    var MAX_W = 1280;
+    if (cw > MAX_W) {
+      ch = Math.round(ch * MAX_W / cw);
+      cw = MAX_W;
+    }
+    if (canvas.width !== cw) canvas.width = cw;
+    if (canvas.height !== ch) canvas.height = ch;
   }
 
-  /* ========== 逐帧绘制 ========== */
+  /* ========== 绘制一帧 ========== */
   function drawFrame() {
     if (video.readyState < 2) return;
     var cw = canvas.width, ch = canvas.height;
@@ -251,17 +300,40 @@
     var scale = Math.min(cw / vw, ch / vh);
     var dw = vw * scale, dh = vh * scale;
     var dx = (cw - dw) / 2, dy = (ch - dh) / 2;
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, cw, ch);
-    try { ctx.drawImage(video, dx, dy, dw, dh); } catch (e) {}
+    try {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, cw, ch);
+      ctx.drawImage(video, dx, dy, dw, dh);
+    } catch (e) {}
   }
 
-  function drawLoop() {
-    drawFrame();
-    drawRafId = requestAnimationFrame(drawLoop);
-  }
+  /* ========== 绘制循环：优先 rVFC，退化 rAF ========== */
   function startDrawLoop() {
-    if (drawRafId == null) drawRafId = requestAnimationFrame(drawLoop);
+    if (drawRunning) return;
+    drawRunning = true;
+
+    if (typeof video.requestVideoFrameCallback === 'function') {
+      var step = function () {
+        drawFrame();
+        if (drawRunning) rvfcHandle = video.requestVideoFrameCallback(step);
+      };
+      rvfcHandle = video.requestVideoFrameCallback(step);
+    } else {
+      var loop = function () {
+        drawFrame();
+        if (drawRunning) rafHandle = requestAnimationFrame(loop);
+      };
+      rafHandle = requestAnimationFrame(loop);
+    }
+  }
+  function stopDrawLoop() {
+    drawRunning = false;
+    if (rvfcHandle != null && typeof video.cancelVideoFrameCallback === 'function') {
+      try { video.cancelVideoFrameCallback(rvfcHandle); } catch (e) {}
+    }
+    if (rafHandle != null) cancelAnimationFrame(rafHandle);
+    rvfcHandle = null;
+    rafHandle = null;
   }
 
   /* ========== 控件显示/隐藏 ========== */
@@ -275,7 +347,6 @@
     }
   }
 
-  /* ========== UI 同步 ========== */
   function updatePlayUI() {
     if (video.paused) {
       playIcon.style.display = 'block';
@@ -301,21 +372,6 @@
     }
   }
 
-  /* ========== 工具 ========== */
-  function decodeBase64(str) {
-    try { return atob(str.replace(/[\r\n\s]/g, '')); }
-    catch (e) { return ''; }
-  }
-  function setActiveButton(enc) {
-    for (var i = 0; i < buttons.length; i++) {
-      var b = buttons[i];
-      if (b.dataset.enc.trim() === enc) b.classList.add('active');
-      else b.classList.remove('active');
-    }
-  }
-  function showLoading() { loadingOverlay.style.display = 'flex'; }
-  function hideLoading() { loadingOverlay.style.display = 'none'; }
-
   function applyResumeTime() {
     if (pendingResumeTime > 0 && isFinite(video.duration) && pendingResumeTime < video.duration - 1) {
       try { video.currentTime = pendingResumeTime; } catch (e) {}
@@ -327,11 +383,11 @@
     if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
   }
 
-  /* ========== 播放/暂停 ========== */
   function togglePlay() {
     if (video.paused) {
       var p = video.play();
       if (p && p.catch) p.catch(function () {});
+      startDrawLoop();
     } else {
       video.pause();
     }
@@ -343,13 +399,16 @@
     pendingResumeTime = resumeTime || 0;
 
     destroyHls();
+    stopDrawLoop();
     try { video.pause(); } catch (e) {}
     video.removeAttribute('src');
     try { video.load(); } catch (e) {}
 
     showLoading();
-    resizeCanvas();
-    startDrawLoop();
+    // 先用占位尺寸初始化 canvas
+    var rect = videoContainer.getBoundingClientRect();
+    canvas.width = Math.max(1, Math.round(rect.width));
+    canvas.height = Math.max(1, Math.round(rect.width * 9 / 16));
 
     var canUseHlsJs = isM3U8 && typeof Hls !== 'undefined' && Hls.isSupported();
 
@@ -362,7 +421,6 @@
         applyResumeTime();
         updatePlayUI();
         updateProgressUI();
-        drawFrame();
       });
       hls.on(Hls.Events.ERROR, function (evt, data) {
         if (!data.fatal) return;
@@ -371,14 +429,12 @@
         else { destroyHls(); hideLoading(); }
       });
     } else {
-      // iOS Safari：不支持 MSE，走系统原生 HLS
       video.addEventListener('loadedmetadata', function onMeta() {
         video.removeEventListener('loadedmetadata', onMeta);
         hideLoading();
         applyResumeTime();
         updatePlayUI();
         updateProgressUI();
-        drawFrame();
       });
       video.src = url;
     }
@@ -394,7 +450,7 @@
     loadVideo(url, resume, isM3U8);
   }
 
-  /* ========== 全屏 ========== */
+  /* ========== 全屏：只用容器全屏，绝不调用 video 原生全屏 ========== */
   function toggleFullscreen() {
     var doc = document;
     var isFull = doc.fullscreenElement || doc.webkitFullscreenElement;
@@ -402,35 +458,52 @@
       var el = videoContainer;
       if (el.requestFullscreen) el.requestFullscreen().catch(function () {});
       else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      // 注意：不调用 video.webkitEnterFullscreen，那是原生播放器入口
     } else {
       if (doc.exitFullscreen) doc.exitFullscreen().catch(function () {});
       else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
     }
+    setTimeout(function () {
+      syncCanvasSize();
+      drawFrame();
+    }, 300);
   }
 
   /* ========== video 事件 ========== */
-  video.addEventListener('play', function () { updatePlayUI(); });
-  video.addEventListener('pause', function () { updatePlayUI(); });
+  video.addEventListener('loadedmetadata', function () {
+    syncCanvasSize();
+    drawFrame();
+  });
+  video.addEventListener('loadeddata', function () {
+    syncCanvasSize();
+    drawFrame();
+  });
+  video.addEventListener('play', function () {
+    updatePlayUI();
+    startDrawLoop();
+  });
+  video.addEventListener('pause', function () {
+    updatePlayUI();
+    drawFrame();
+  });
   video.addEventListener('timeupdate', function () {
     updateProgressUI();
     if (currentUrl) saveProgress(currentUrl, video.currentTime);
   });
+  video.addEventListener('seeked', function () {
+    drawFrame();
+  });
   video.addEventListener('ended', function () { updatePlayUI(); });
-  video.addEventListener('seeked', function () { drawFrame(); });
-  video.addEventListener('loadeddata', function () { drawFrame(); });
 
   /* ========== 控件事件 ========== */
   centerPlay.addEventListener('click', function (e) {
     e.stopPropagation();
     togglePlay();
   });
-
   playPauseBtn.addEventListener('click', function (e) {
     e.stopPropagation();
     togglePlay();
   });
-
-  // 进度条拖动
   progressRange.addEventListener('input', function () {
     seeking = true;
     var d = video.duration;
@@ -448,13 +521,12 @@
     seeking = false;
     updateProgressUI();
   });
-
   fullscreenBtn.addEventListener('click', function (e) {
     e.stopPropagation();
     toggleFullscreen();
   });
 
-  // 点击画面：控件不可见 → 显示；可见 → 播放/暂停
+  // 点击视频区域：先显示控件，再切换播放/暂停
   videoContainer.addEventListener('click', function () {
     if (!controlsOverlay.classList.contains('visible')) {
       showControls();
@@ -462,10 +534,9 @@
       togglePlay();
     }
   });
-
   videoContainer.addEventListener('mousemove', showControls);
 
-  /* ========== 列表按钮 ========== */
+  /* ========== 按钮绑定 ========== */
   for (var i = 0; i < buttons.length; i++) {
     (function (btn) {
       btn.addEventListener('click', function () {
@@ -474,16 +545,21 @@
     })(buttons[i]);
   }
 
-  /* ========== 窗口/旋转 ========== */
+  /* ========== resize / 旋转 ========== */
   window.addEventListener('resize', function () {
-    resizeCanvas();
+    syncCanvasSize();
     drawFrame();
   });
   window.addEventListener('orientationchange', function () {
-    setTimeout(function () { resizeCanvas(); drawFrame(); }, 300);
+    setTimeout(function () { syncCanvasSize(); drawFrame(); }, 350);
   });
+  if (window.screen && window.screen.orientation && window.screen.orientation.addEventListener) {
+    window.screen.orientation.addEventListener('change', function () {
+      setTimeout(function () { syncCanvasSize(); drawFrame(); }, 350);
+    });
+  }
 
-  /* ========== 首屏加载第一个（不自动播放） ========== */
+  /* ========== 首屏：加载第一个视频，不自动播放 ========== */
   if (buttons.length) {
     loadVideoFromEncoded(buttons[0].dataset.enc.trim());
   }
