@@ -121,8 +121,17 @@
 <div class="content-wrapper">
   <h1>🎬 为避免财产损失，请勿相信视频中的广告</h1>
   <div class="video-container">
-    <!-- 不加 autoplay，手动播放 -->
-    <video id="video" playsinline webkit-playsinline preload="metadata" controls></video>
+    <!-- 严格保持你原本的标签写法，防浏览器劫持，让进度条回归底部 -->
+    <video id="video"
+           playsinline
+           webkit-playsinline
+           x5-playsinline="true"
+           x5-video-player-type="h5"
+           x5-video-player-fullscreen="false"
+           preload="auto"
+           controls
+           controlsList="nodownload noremoteplayback noplaybackrate"
+           disablePictureInPicture></video>
     <div class="loading-overlay" id="loadingOverlay">
       <div class="loader"></div>
       <div class="loading-text">
@@ -156,12 +165,11 @@
   var buttons = document.querySelectorAll('.video-button');
   var loadingOverlay = document.getElementById('loadingOverlay');
 
-  var hls = null;                 // 当前 hls.js 实例
-  var currentUrl = '';            // 当前视频地址（用于存进度）
-  var pendingResumeTime = 0;      // 待恢复的播放进度
-  var activeNativeHandler = null; // 原生播放的 loadedmetadata 回调
+  var hls = null;
+  var currentUrl = '';
+  var pendingResumeTime = 0;
+  var activeNativeHandler = null;
 
-  /* ---------- 进度存取 ---------- */
   function saveProgress(url, time) {
     if (!url || !isFinite(time)) return;
     try { localStorage.setItem('progress_' + url, time.toFixed(1)); } catch (e) {}
@@ -173,7 +181,6 @@
     } catch (e) { return 0; }
   }
 
-  /* ---------- UI ---------- */
   function setActiveButton(enc) {
     for (var i = 0; i < buttons.length; i++) {
       var b = buttons[i];
@@ -184,21 +191,18 @@
   function showLoading() { loadingOverlay.style.display = 'flex'; }
   function hideLoading() { loadingOverlay.style.display = 'none'; }
 
-  /* ---------- Base64 ---------- */
   function decodeBase64(str) {
     try { return atob(str.replace(/[\r\n\s]/g, '')); }
     catch (e) { return ''; }
   }
 
-  /* ---------- 恢复进度（只在已就绪后调用） ---------- */
   function applyResumeTime(t) {
     if (!t || !isFinite(t) || t <= 0) return;
     var d = video.duration;
-    if (isFinite(d) && d > 0 && t >= d - 1) return; // 已接近结尾则从头播
+    if (isFinite(d) && d > 0 && t >= d - 1) return;
     try { video.currentTime = t; } catch (e) {}
   }
 
-  /* ---------- 清理 ---------- */
   function destroyHls() {
     if (hls) {
       try { hls.destroy(); } catch (e) {}
@@ -215,12 +219,10 @@
     try { video.load(); } catch (e) {}
   }
 
-  /* ---------- 加载视频 ---------- */
   function loadVideo(url, resumeTime, isM3U8) {
     currentUrl = url;
     pendingResumeTime = resumeTime || 0;
 
-    // 先摘掉旧的进度保存
     if (video._saveHandler) {
       video.removeEventListener('timeupdate', video._saveHandler);
     }
@@ -229,8 +231,8 @@
     resetVideoElement();
     showLoading();
 
-    // 关键判断：iOS Safari 不支持 MSE，Hls.isSupported() 为 false，
-    // 直接交给系统原生 HLS 播放（否则就是黑屏）
+    // iOS Safari 不支持 MSE，Hls.isSupported() 为 false，
+    // 这时交给系统原生 HLS 播放（否则会黑屏）
     var canUseHlsJs = isM3U8 &&
                       typeof Hls !== 'undefined' &&
                       Hls.isSupported();
@@ -246,7 +248,7 @@
       hls.on(Hls.Events.MANIFEST_PARSED, function () {
         hideLoading();
         applyResumeTime(pendingResumeTime);
-        // ❌ 不调用 video.play()，交给用户手动播放
+        // 不自动播放
       });
 
       hls.on(Hls.Events.ERROR, function (event, data) {
@@ -266,13 +268,12 @@
       });
 
     } else {
-      // 原生播放：iOS Safari、旧安卓、或直接是 mp4 的情况
       activeNativeHandler = function () {
         video.removeEventListener('loadedmetadata', activeNativeHandler);
         activeNativeHandler = null;
         hideLoading();
         applyResumeTime(pendingResumeTime);
-        // ❌ 同样不自动 play
+        // 不自动播放
       };
       video.addEventListener('loadedmetadata', activeNativeHandler);
       video.src = url;
@@ -280,14 +281,12 @@
 
     video.controls = true;
 
-    // 进度保存
     video._saveHandler = function () {
       saveProgress(currentUrl, video.currentTime);
     };
     video.addEventListener('timeupdate', video._saveHandler);
   }
 
-  /* ---------- 由按钮触发 ---------- */
   function loadVideoFromEncoded(encStr) {
     var url = decodeBase64(encStr.trim());
     if (!url) return;
@@ -298,10 +297,9 @@
     loadVideo(url, resumeTime, isM3U8);
   }
 
-  /* ---------- 事件绑定 ---------- */
   video.addEventListener('playing', hideLoading);
   video.addEventListener('canplay', hideLoading);
-  video.addEventListener('error', hideLoading); // 出错时别一直转圈
+  video.addEventListener('error', hideLoading);
 
   for (var i = 0; i < buttons.length; i++) {
     (function (btn) {
@@ -311,7 +309,6 @@
     })(buttons[i]);
   }
 
-  /* ---------- 首屏：只加载第一个视频，不播放 ---------- */
   if (buttons.length) {
     loadVideoFromEncoded(buttons[0].dataset.enc.trim());
   }
