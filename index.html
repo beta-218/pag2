@@ -168,9 +168,7 @@ let lastSaveTime = 0;
 let currentPlayingUrl = ""; 
 let isSwitching = false;
 
-// 针对 Cloudflare 代理及多域名环境定制的稳健 Storage 读写方法
 function getStorageKey(url) {
-  // 提取纯文件名或m3u8 path作为唯一标识，防止代理前后域名不一致导致 localStorage 隔离
   try {
     const cleanPath = new URL(url).pathname.replace(/[^a-zA-Z0-9]/g, "_");
     return "a7r7_progress_" + cleanPath;
@@ -179,30 +177,38 @@ function getStorageKey(url) {
   }
 }
 
+// 【关键升级】同时写入 LocalStorage 与 Cookie，防止小米/华为等国产浏览器在切后台时直接销毁 Storage
 function saveProgress(url, time) {
   if (!url || isNaN(time) || time < 2) return;
   try {
     const key = getStorageKey(url);
-    localStorage.setItem(key, time.toFixed(1));
-  } catch (e) {
-    // 兼容部分移动端隐私模式无法写入的问题
-  }
+    const val = time.toFixed(1);
+    localStorage.setItem(key, val);
+    // 写入 Cookie 30天有效，作为国产定制浏览器的兜底备份
+    document.cookie = `${key}=${val}; max-age=2592000; path=/`;
+  } catch (e) {}
 }
 
 function loadProgress(url) {
   if (!url) return 0;
   try {
     const key = getStorageKey(url);
-    const t = parseFloat(localStorage.getItem(key));
-    return isNaN(t) ? 0 : t;
-  } catch (e) {
-    return 0;
-  }
+    // 优先从 LocalStorage 读取
+    let t = parseFloat(localStorage.getItem(key));
+    if (!isNaN(t) && t > 0) return t;
+
+    // 如果 LocalStorage 读不到，尝试从 Cookie 中提取
+    const match = document.cookie.match(new RegExp('(^| )' + key + '=([^;]+)'));
+    if (match) {
+      t = parseFloat(match[2]);
+      if (!isNaN(t) && t > 0) return t;
+    }
+  } catch (e) {}
+  return 0;
 }
 
 function saveCurrentProgress() {
   if (!currentPlayingUrl || isSwitching || isNaN(video.currentTime)) return;
-  // 如果接近结尾（剩余2秒内），自动清除进度，下次从头看
   if (video.duration && !isNaN(video.duration) && video.currentTime >= video.duration - 2) {
     saveProgress(currentPlayingUrl, 0);
     return;
@@ -236,7 +242,6 @@ function loadVideo(url, resumeTime, isM3U8, userInitiated = false) {
   const canNativePlay = video.canPlayType('application/vnd.apple.mpegurl') || video.canPlayType('application/x-mpegURL');
 
   if (isM3U8 && typeof Hls !== 'undefined' && Hls.isSupported() && !canNativePlay) {
-    // HLS.js 模式：利用原生的 startPosition 参数无缝跳过加载限制
     hls = new Hls({
       enableWorker: true,
       startFragPrefetch: true,
@@ -247,6 +252,10 @@ function loadVideo(url, resumeTime, isM3U8, userInitiated = false) {
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       isSwitching = false;
+      if (resumeTime > 0) {
+        // 确保 HLS.js 挂载后二次硬编码强行纠正（针对部分小米/华为 WebView 第一次生效不彻底的问题）
+        try { video.currentTime = resumeTime; } catch(e){}
+      }
       if (userInitiated) {
         video.play().catch(() => {});
       }
@@ -263,31 +272,34 @@ function loadVideo(url, resumeTime, isM3U8, userInitiated = false) {
       }
     });
   } else {
-    // iOS 原生 Safari 模式
+    // 【关键升级】针对苹果 Safari / 其它原生 WebView 采用多阶段强力延时跳转
     video.src = url;
-    let applied = false;
-
-    const applyTime = () => {
-      if (applied || currentPlayingUrl !== url) return;
+    
+    let appliedCount = 0;
+    const forceSeek = () => {
+      if (currentPlayingUrl !== url || appliedCount > 5) return;
       if (resumeTime > 0) {
         try {
-          video.currentTime = resumeTime;
-          applied = true;
+          if (video.duration && !isNaN(video.duration)) {
+            video.currentTime = resumeTime;
+            appliedCount++;
+          }
         } catch (err) {}
-      } else {
-        applied = true;
       }
     };
 
     video.addEventListener('loadedmetadata', () => {
-      applyTime();
+      forceSeek();
       isSwitching = false;
       if (userInitiated) video.play().catch(() => {});
       hideLoading();
     }, { once: true });
 
-    // 移动端多重事件兜底
-    video.addEventListener('canplay', applyTime);
+    // 针对旧版 Safari 及部分定制内核增加多重事件与延时定时器硬跳
+    video.addEventListener('canplay', forceSeek);
+    video.addEventListener('playing', forceSeek);
+    setTimeout(forceSeek, 500);
+    setTimeout(forceSeek, 1200);
   }
 
   video.controls = true;
@@ -297,7 +309,6 @@ function loadVideoFromEncoded(encStr, userInitiated = false) {
   const url = decodeBase64(encStr.trim());
   if (!url) return;
   
-  // 切换前立刻锁死并保存当前进度
   saveCurrentProgress();
   
   setActiveButton(encStr);
@@ -308,7 +319,7 @@ function loadVideoFromEncoded(encStr, userInitiated = false) {
   loadVideo(url, resumeTime, isM3U8, userInitiated);
 }
 
-// 播放中高频安全保存（每隔 1 秒写一次内存）
+// 频繁滚动实时保存
 video.addEventListener('timeupdate', () => {
   if (!currentPlayingUrl || video.paused || isSwitching) return;
   const now = Date.now();
@@ -318,7 +329,7 @@ video.addEventListener('timeupdate', () => {
   }
 });
 
-// 暂停、退出、切后台时强制即刻保存
+// 各种退出、暂停事件全量同步触发保存
 video.addEventListener('pause', saveCurrentProgress);
 video.addEventListener('ended', () => {
   if (currentPlayingUrl) saveProgress(currentPlayingUrl, 0);
@@ -330,7 +341,7 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('pagehide', saveCurrentProgress);
 window.addEventListener('beforeunload', saveCurrentProgress);
 
-// 初始化第一个视频（不自动播放以防受移动端策略拦截）
+// 初始化第一个视频
 loadVideoFromEncoded(buttons[0].dataset.enc.trim(), false);
 
 buttons.forEach(btn => {
