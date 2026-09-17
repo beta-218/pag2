@@ -168,6 +168,9 @@ let lastSaveTime = 0;
 let currentPlayingUrl = ""; 
 let isSwitching = false;
 
+// 内存级高速兜底缓存（防止 LocalStorage 异常时彻底失效）
+window._memoryCache = window._memoryCache || {};
+
 function getStorageKey(url) {
   try {
     const cleanPath = new URL(url).pathname.replace(/[^a-zA-Z0-9]/g, "_");
@@ -177,33 +180,50 @@ function getStorageKey(url) {
   }
 }
 
-// 【关键升级】同时写入 LocalStorage 与 Cookie，防止小米/华为等国产浏览器在切后台时直接销毁 Storage
+// 三保险存储：内存 + Cookie + LocalStorage
 function saveProgress(url, time) {
-  if (!url || isNaN(time) || time < 2) return;
+  if (!url || isNaN(time) || time < 1) return;
+  const key = getStorageKey(url);
+  const val = time.toFixed(1);
+  
+  // 1. 内存层
+  window._memoryCache[key] = val;
+
+  // 2. 持久化层
   try {
-    const key = getStorageKey(url);
-    const val = time.toFixed(1);
     localStorage.setItem(key, val);
-    // 写入 Cookie 30天有效，作为国产定制浏览器的兜底备份
-    document.cookie = `${key}=${val}; max-age=2592000; path=/`;
+  } catch (e) {}
+
+  try {
+    document.cookie = `${key}=${val}; max-age=2592000; path=/; SameSite=Lax`;
   } catch (e) {}
 }
 
 function loadProgress(url) {
   if (!url) return 0;
+  const key = getStorageKey(url);
+  
+  // 1. 先查内存层
+  if (window._memoryCache[key]) {
+    const t = parseFloat(window._memoryCache[key]);
+    if (!isNaN(t) && t > 0) return t;
+  }
+
+  // 2. 查 LocalStorage
   try {
-    const key = getStorageKey(url);
-    // 优先从 LocalStorage 读取
     let t = parseFloat(localStorage.getItem(key));
     if (!isNaN(t) && t > 0) return t;
+  } catch (e) {}
 
-    // 如果 LocalStorage 读不到，尝试从 Cookie 中提取
+  // 3. 查 Cookie 兜底
+  try {
     const match = document.cookie.match(new RegExp('(^| )' + key + '=([^;]+)'));
     if (match) {
-      t = parseFloat(match[2]);
+      let t = parseFloat(match[2]);
       if (!isNaN(t) && t > 0) return t;
     }
   } catch (e) {}
+
   return 0;
 }
 
@@ -214,6 +234,30 @@ function saveCurrentProgress() {
     return;
   }
   saveProgress(currentPlayingUrl, video.currentTime);
+}
+
+// 核心安全轮询跳转：解决所有手机浏览器因元数据就绪延迟而拒绝设置进度的问题
+function seekVideoTo(targetTime) {
+  if (targetTime <= 0) return;
+  let attempts = 0;
+  const maxAttempts = 15; // 最多轮询15次（约4.5秒）
+  
+  const timer = setInterval(() => {
+    attempts++;
+    if (video.duration && !isNaN(video.duration) && video.duration > 0) {
+      if (Math.abs(video.currentTime - targetTime) > 1) {
+        try {
+          video.currentTime = targetTime;
+        } catch (e) {}
+      }
+      // 如果已经成功接近目标进度，或者超过最大尝试次数，则清除轮询
+      if (Math.abs(video.currentTime - targetTime) <= 2 || attempts >= maxAttempts) {
+        clearInterval(timer);
+      }
+    } else if (attempts >= maxAttempts) {
+      clearInterval(timer);
+    }
+  }, 300);
 }
 
 function setActiveButton(enc) {
@@ -253,8 +297,7 @@ function loadVideo(url, resumeTime, isM3U8, userInitiated = false) {
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       isSwitching = false;
       if (resumeTime > 0) {
-        // 确保 HLS.js 挂载后二次硬编码强行纠正（针对部分小米/华为 WebView 第一次生效不彻底的问题）
-        try { video.currentTime = resumeTime; } catch(e){}
+        seekVideoTo(resumeTime);
       }
       if (userInitiated) {
         video.play().catch(() => {});
@@ -272,34 +315,19 @@ function loadVideo(url, resumeTime, isM3U8, userInitiated = false) {
       }
     });
   } else {
-    // 【关键升级】针对苹果 Safari / 其它原生 WebView 采用多阶段强力延时跳转
+    // 苹果 Safari 及原生 WebView 模式
     video.src = url;
     
-    let appliedCount = 0;
-    const forceSeek = () => {
-      if (currentPlayingUrl !== url || appliedCount > 5) return;
-      if (resumeTime > 0) {
-        try {
-          if (video.duration && !isNaN(video.duration)) {
-            video.currentTime = resumeTime;
-            appliedCount++;
-          }
-        } catch (err) {}
-      }
-    };
+    if (resumeTime > 0) {
+      seekVideoTo(resumeTime);
+    }
 
     video.addEventListener('loadedmetadata', () => {
-      forceSeek();
       isSwitching = false;
+      if (resumeTime > 0) seekVideoTo(resumeTime);
       if (userInitiated) video.play().catch(() => {});
       hideLoading();
     }, { once: true });
-
-    // 针对旧版 Safari 及部分定制内核增加多重事件与延时定时器硬跳
-    video.addEventListener('canplay', forceSeek);
-    video.addEventListener('playing', forceSeek);
-    setTimeout(forceSeek, 500);
-    setTimeout(forceSeek, 1200);
   }
 
   video.controls = true;
@@ -319,7 +347,7 @@ function loadVideoFromEncoded(encStr, userInitiated = false) {
   loadVideo(url, resumeTime, isM3U8, userInitiated);
 }
 
-// 频繁滚动实时保存
+// 高频实时保存
 video.addEventListener('timeupdate', () => {
   if (!currentPlayingUrl || video.paused || isSwitching) return;
   const now = Date.now();
@@ -329,7 +357,7 @@ video.addEventListener('timeupdate', () => {
   }
 });
 
-// 各种退出、暂停事件全量同步触发保存
+// 全面捕获退出与切后台事件
 video.addEventListener('pause', saveCurrentProgress);
 video.addEventListener('ended', () => {
   if (currentPlayingUrl) saveProgress(currentPlayingUrl, 0);
