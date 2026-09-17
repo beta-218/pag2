@@ -21,30 +21,6 @@
   .content-wrapper {
     display: flex;
     flex-direction: column;
-    align-items:```html
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🎬 a7r7.cc</title>
-<style>
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: #000;
-    color: #fff;
-    font-family: Arial, sans-serif;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    align-items: center;
-    min-height: 100vh;
-    padding: 80px 20px 20px;
-  }
-  .content-wrapper {
-    display: flex;
-    flex-direction: column;
     align-items: center;
     width: 100%;
     max-width: 90vw;
@@ -119,36 +95,29 @@
     30%, 80% { opacity: 1; }
     100% { opacity: 0; }
   }
-  /* 修改为 Grid 网格布局，强制3列等宽 */
   .video-list {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
+    grid-template-columns: repeat(3, 1fr); /* 设置为3列等宽 */
+    gap: 10px; /* 按钮间距 */
     margin-top: 20px;
     width: 100%;
-    max-width: 90vw;
-  }
-  /* 限制在电脑端等宽屏设备上的最大宽度，保持移动端比例观感 */
-  @media(min-width: 500px) {
-    .video-list {
-      max-width: 400px;
-    }
+    max-width: 360px; /* 限制最大宽度，保证按钮比例美观 */
   }
   .video-button {
-    padding: 10px 0; /* 去掉左右内边距，依靠网格自动居中分配宽度，避免小屏文字溢出 */
+    padding: 10px 0; /* 靠 grid-template 自动撑开水平宽度，因此设左右内边距为0 */
     font-size: 15px;
-    text-align: center;
     border: none;
     border-radius: 8px;
     background-color: #333;
     color: white;
     cursor: pointer;
     transition: background-color 0.3s;
+    text-align: center; /* 确保文字水平居中 */
   }
   .video-button:hover { background-color: #555; }
   .video-button.active { background-color: #00c300; }
 </style>
-<script src="[https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js](https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js)"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
 </head>
 <body>
 <div class="content-wrapper">
