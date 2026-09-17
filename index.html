@@ -1,3 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎬 a7r7.cc</title>
+
+<style>
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background: #000;
+    color: #fff;
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    min-height: 100vh;
+    padding: 80px 20px 0;
+  }
+
+  .content-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 90vw;
+  }
+
+  h1 {
+    font-size: 13px;
+    font-weight: normal;
+    margin-bottom: 20px;
+    text-align: center;
+    opacity: 0.6;
+  }
+
+  .video-container {
+    position: relative;
+    width: 100%;
+  }
+
+  video {
+    width: 100%;
+    height: auto;
+    border-radius: 12px;
+    background: #000;
+  }
+
+  .buffer-tips {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+    margin-top: 8px;
+    text-align: center;
+  }
+
+  .loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    pointer-events: none;
+    border-radius: 12px;
+  }
+
+  .loader {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #00ff88;
+    border-radius: 50%;
+    animation:
+      spin 1s linear infinite,
+      pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes pulse {
+    0%, 100% {
+      box-shadow: 0 0 0 0 rgba(0, 255, 136, 0.6);
+    }
+
+    50% {
+      box-shadow: 0 0 15px 5px rgba(0, 255, 136, 0.3);
+    }
+  }
+
+  .loading-text {
+    margin-top: 10px;
+    font-size: 14px;
+    color: #00ff88;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+  }
+
+  .dots span {
+    opacity: 0;
+    color: #00ff88;
+    text-shadow:
+      0 0 5px #00ff88,
+      0 0 10px #00ff88;
+    animation: blink 1.5s infinite;
+  }
+
+  .dots span:nth-child(1) {
+    animation-delay: 0s;
+  }
+
+  .dots span:nth-child(2) {
+    animation-delay: 0.3s;
+  }
+
+  .dots span:nth-child(3) {
+    animation-delay: 0.6s;
+  }
+
+  @keyframes blink {
+    0%, 20% {
+      opacity: 0;
+    }
+
+    30%, 80% {
+      opacity: 1;
+    }
+
+    100% {
+      opacity: 0;
+    }
+  }
+
+  .video-list {
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    justify-content: center;
+    justify-items: center;
+    width: 100%;
+    max-width: 90vw;
+    margin-top: 20px;
+    column-gap: 10px;
+    row-gap: 24px;
+    margin-bottom: 12px;
+  }
+
+  .video-button {
+    padding: 10px 16px;
+    font-size: 15px;
+    border: none;
+    border-radius: 8px;
+    background-color: #333;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.3s;
+  }
+
+  .video-button:hover {
+    background-color: #555;
+  }
+
+  .video-button.active {
+    background-color: #00c300;
+  }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
+</head>
+
+<body>
+
+<div class="content-wrapper">
+
+  <h1>🎬 为避免财产损失，请勿相信视频中的广告</h1>
+
+  <div class="video-container">
+
+    <video
+      id="video"
+      playsinline
+      webkit-playsinline
+      preload="auto"
+      controls
+    ></video>
+
+    <div class="loading-overlay" id="loadingOverlay">
+
+      <div class="loader"></div>
+
+      <div class="loading-text">
+        正在加载视频
+        <span class="dots">
+          <span>.</span>
+          <span>.</span>
+          <span>.</span>
+        </span>
+      </div>
+
+    </div>
+
+  </div>
+
+  <div class="buffer-tips">
+    如遇卡顿，请尝试暂停缓冲几秒
+  </div>
+
+</div>
+
+
+<div class="video-list" id="videoList">
+
+  <button
+    class="video-button"
+    data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNjI5L2hBN2l0blVkL2luZGV4Lm0zdTg="
+  >视频1</button>
+
+  <button
+    class="video-button"
+    data-enc="aHR0cHM6Ly92MjAyNC5maGJiZmYuY29tLzIwMjQxMTE5L2dvbGp6a2lNL2luZGV4Lm0zdTg="
+  >视频2</button>
+
+  <button
+    class="video-button"
+    data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNDE4L3pPUG9KeTlPL2luZGV4Lm0zdTg="
+  >视频3</button>
+
+  <button
+    class="video-button"
+    data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNjI3LzRnUXdUa0ptL2luZGV4Lm0zdG8="
+  >视频4</button>
+
+  <button
+    class="video-button"
+    data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTA3L2drOHVWRGNaL2luZGV4Lm0zdTg="
+  >视频5</button>
+
+  <button
+    class="video-button"
+    data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNzA4L1lIcHdyb1hIL2luZGV4Lm0zdTg="
+  >视频6</button>
+
+  <button
+    class="video-button"
+    data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNTI4L3h4eHVWUGt5L2luZGV4Lm0zdGg="
+  >视频7</button>
+
+  <button
+    class="video-button"
+    data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNDI5L3BJZ3FnckZvL2luZGV4Lm0zdG8="
+  >视频8</button>
+
+  <button
+    class="video-button"
+    data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTA2L0dUU2pXWTViL2luZGV4Lm0zdG8="
+  >视频9</button>
+
+  <button
+    class="video-button"
+    data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTAyL2k3UFJkNHBPL2luZGV4Lm0zdG8="
+  >视频10</button>
+
+  <button
+    class="video-button"
+    data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwODE5L3EzSVp1bDd4L2luZGV4Lm0zdG8="
+  >视频11</button>
+
+  <button
+    class="video-button"
+    data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwOTEwL3FyRjBXM2hSL2luZGV4Lm0zdG8="
+  >视频12</button>
+
+  <button
+    class="video-button"
+    data-enc="aHR0cHM6Ly8yNjA3LmZodjIwMjYuY29tLzIwMjYwODIxL21zckFhYWR5L2luZGV4Lm0zdG8="
+  >视频13</button>
+
+  <button
+    class="video-button"
+    data-enc="aHR0cHM6Ly8yNjA3LmZodjIwMjYuY29tLzIwMjYwODE5L21pV21LbU8zL2luZGV4Lm0zdG8="
+  >视频14</button>
+
+  <button
+    class="video-button"
+    data-enc="aHR0cHM6Ly8yNjA3LmZodjIwMjYuY29tLzIwMjYwODI1L1ZmT1h6eFRtL2luZGV4Lm0zdG8="
+  >视频15</button>
+
+</div>
+
+
 <script>
 const video = document.getElementById('video');
 const buttons = document.querySelectorAll('.video-button');
@@ -15,7 +317,9 @@ let restoreAttempts = 0;
 ========================= */
 
 function saveProgress(url, time) {
-  if (!url || !Number.isFinite(time) || time < 0) return;
+  if (!url || !Number.isFinite(time) || time < 0) {
+    return;
+  }
 
   try {
     localStorage.setItem(
@@ -36,6 +340,7 @@ function loadProgress(url) {
     return Number.isFinite(value) && value >= 0
       ? value
       : 0;
+
   } catch (e) {
     console.warn("无法读取播放进度:", e);
     return 0;
@@ -49,6 +354,7 @@ function clearProgress(url) {
     console.warn("无法清除播放进度:", e);
   }
 }
+
 
 /* =========================
    页面 UI
@@ -79,12 +385,15 @@ function decodeBase64(str) {
   }
 }
 
+
 /* =========================
    进度保存
 ========================= */
 
 function saveCurrentProgress() {
-  if (!currentUrl) return;
+  if (!currentUrl) {
+    return;
+  }
 
   const time = video.currentTime;
 
@@ -97,7 +406,11 @@ function saveCurrentProgress() {
   }
 }
 
-/* 每 2 秒保存一次，避免移动端退出时丢失太多进度 */
+/*
+ * 每 2 秒保存一次。
+ * 移动端切换 App、锁屏或页面被挂起时，
+ * 可以尽量减少进度丢失。
+ */
 function startProgressSaving() {
   stopProgressSaving();
 
@@ -112,6 +425,7 @@ function stopProgressSaving() {
     saveTimer = null;
   }
 }
+
 
 /* =========================
    恢复播放位置
@@ -144,7 +458,9 @@ function getSafeResumeTime(time) {
 }
 
 function restorePlaybackPosition() {
-  if (!isRestoring) return;
+  if (!isRestoring) {
+    return;
+  }
 
   restoreAttempts++;
 
@@ -158,23 +474,39 @@ function restorePlaybackPosition() {
   }
 
   /*
-   * 对 HLS / Safari，优先检查 seekable 范围。
-   * 如果当前时间轴还没准备好，稍后重试。
+   * HLS / Safari：
+   * 优先检查当前媒体是否已经有可 seek 的范围。
    */
-  if (video.seekable && video.seekable.length > 0) {
+  if (
+    video.seekable &&
+    video.seekable.length > 0
+  ) {
     const start = video.seekable.start(0);
+
     const end = video.seekable.end(
       video.seekable.length - 1
     );
 
-    if (resumeTime >= start && resumeTime <= end) {
+    if (
+      resumeTime >= start &&
+      resumeTime <= end
+    ) {
       try {
         video.currentTime = resumeTime;
         isRestoring = false;
-        console.log("已恢复播放位置:", resumeTime);
+
+        console.log(
+          "已恢复播放位置:",
+          resumeTime
+        );
+
         return;
+
       } catch (e) {
-        console.warn("恢复播放位置失败:", e);
+        console.warn(
+          "恢复播放位置失败:",
+          e
+        );
       }
     }
   }
@@ -190,10 +522,19 @@ function restorePlaybackPosition() {
     try {
       video.currentTime = resumeTime;
       isRestoring = false;
-      console.log("已恢复播放位置:", resumeTime);
+
+      console.log(
+        "已恢复播放位置:",
+        resumeTime
+      );
+
       return;
+
     } catch (e) {
-      console.warn("恢复播放位置失败:", e);
+      console.warn(
+        "恢复播放位置失败:",
+        e
+      );
     }
   }
 
@@ -201,18 +542,35 @@ function restorePlaybackPosition() {
    * 移动端媒体加载较慢，最多重试 20 次。
    */
   if (restoreAttempts < 20) {
-    setTimeout(restorePlaybackPosition, 300);
+    setTimeout(
+      restorePlaybackPosition,
+      300
+    );
   } else {
     isRestoring = false;
-    console.warn("恢复播放位置超时");
+
+    console.warn(
+      "恢复播放位置超时"
+    );
   }
 }
+
 
 /* =========================
    加载视频
 ========================= */
 
-function loadVideo(url, resumeTime, isM3U8, userInitiated = false) {
+function loadVideo(
+  url,
+  resumeTime,
+  isM3U8,
+  userInitiated = false
+) {
+  /*
+   * 切换视频前，先保存上一个视频的进度。
+   */
+  saveCurrentProgress();
+
   currentUrl = url;
   currentResumeTime = resumeTime;
   restoreAttempts = 0;
@@ -229,8 +587,12 @@ function loadVideo(url, resumeTime, isM3U8, userInitiated = false) {
   video.load();
 
   const canNativePlay =
-    video.canPlayType('application/vnd.apple.mpegurl') ||
-    video.canPlayType('application/x-mpegURL');
+    video.canPlayType(
+      'application/vnd.apple.mpegurl'
+    ) ||
+    video.canPlayType(
+      'application/x-mpegURL'
+    );
 
   /*
    * 安卓 / 桌面 Chrome：Hls.js
@@ -249,35 +611,42 @@ function loadVideo(url, resumeTime, isM3U8, userInitiated = false) {
     hls.loadSource(url);
     hls.attachMedia(video);
 
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      /*
-       * 不在这里直接恢复 currentTime。
-       * 等 loadedmetadata / canplay 后恢复。
-       */
-      if (userInitiated) {
-        video.play().catch(() => {});
-      }
-    });
+    hls.on(
+      Hls.Events.MANIFEST_PARSED,
+      () => {
+        /*
+         * 不在这里直接恢复 currentTime。
+         * 等 loadedmetadata / canplay 后恢复。
+         */
 
-    hls.on(Hls.Events.ERROR, function(event, data) {
-      if (data.fatal) {
-        switch (data.type) {
-          case Hls.ErrorTypes.NETWORK_ERROR:
-            hls.startLoad();
-            break;
-
-          case Hls.ErrorTypes.MEDIA_ERROR:
-            hls.recoverMediaError();
-            break;
-
-          default:
-            hls.destroy();
-            hls = null;
-            hideLoading();
-            break;
+        if (userInitiated) {
+          video.play().catch(() => {});
         }
       }
-    });
+    );
+
+    hls.on(
+      Hls.Events.ERROR,
+      function(event, data) {
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              hls.startLoad();
+              break;
+
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              hls.recoverMediaError();
+              break;
+
+            default:
+              hls.destroy();
+              hls = null;
+              hideLoading();
+              break;
+          }
+        }
+      }
+    );
 
   } else {
     /*
@@ -293,14 +662,22 @@ function loadVideo(url, resumeTime, isM3U8, userInitiated = false) {
   video.controls = true;
 }
 
+
 /* =========================
    从按钮加载视频
 ========================= */
 
-function loadVideoFromEncoded(encStr, userInitiated = false) {
-  const url = decodeBase64(encStr.trim());
+function loadVideoFromEncoded(
+  encStr,
+  userInitiated = false
+) {
+  const url = decodeBase64(
+    encStr.trim()
+  );
 
-  if (!url) return;
+  if (!url) {
+    return;
+  }
 
   setActiveButton(encStr);
   showLoading();
@@ -316,56 +693,75 @@ function loadVideoFromEncoded(encStr, userInitiated = false) {
   );
 }
 
+
 /* =========================
    媒体事件
 ========================= */
 
 /*
- * 媒体元数据加载完成后，开始尝试恢复。
+ * 元数据加载完成后，开始尝试恢复。
  */
-video.addEventListener('loadedmetadata', () => {
-  restorePlaybackPosition();
-});
+video.addEventListener(
+  'loadedmetadata',
+  () => {
+    restorePlaybackPosition();
+  }
+);
 
 /*
  * canplay 表示已经具备一定播放能力。
- * 对移动端恢复位置很重要。
  */
-video.addEventListener('canplay', () => {
-  restorePlaybackPosition();
-  hideLoading();
-});
+video.addEventListener(
+  'canplay',
+  () => {
+    restorePlaybackPosition();
+    hideLoading();
+  }
+);
 
 /*
  * playing 后再次检查，防止某些 HLS 流
  * 在 canplay 时 seekable 范围还没准备好。
  */
-video.addEventListener('playing', () => {
-  restorePlaybackPosition();
-  hideLoading();
-});
+video.addEventListener(
+  'playing',
+  () => {
+    restorePlaybackPosition();
+    hideLoading();
+  }
+);
 
 /*
  * 用户拖动进度条后，立即保存。
  */
-video.addEventListener('seeked', () => {
-  saveCurrentProgress();
-});
+video.addEventListener(
+  'seeked',
+  () => {
+    saveCurrentProgress();
+  }
+);
 
 /*
  * 播放过程中持续保存。
  */
-video.addEventListener('timeupdate', () => {
-  saveCurrentProgress();
-});
+video.addEventListener(
+  'timeupdate',
+  () => {
+    saveCurrentProgress();
+  }
+);
 
 /*
  * 播放结束后清除进度。
  * 下次重新从头播放。
  */
-video.addEventListener('ended', () => {
-  clearProgress(currentUrl);
-});
+video.addEventListener(
+  'ended',
+  () => {
+    clearProgress(currentUrl);
+  }
+);
+
 
 /* =========================
    移动端离开 / 后台保存
@@ -375,18 +771,25 @@ video.addEventListener('ended', () => {
  * 页面进入后台时保存。
  * 移动端切换 App、锁屏等场景很重要。
  */
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') {
-    saveCurrentProgress();
+document.addEventListener(
+  'visibilitychange',
+  () => {
+    if (document.visibilityState === 'hidden') {
+      saveCurrentProgress();
+    }
   }
-});
+);
 
 /*
  * 页面被卸载、返回上一页、关闭标签页时保存。
  */
-window.addEventListener('pagehide', () => {
-  saveCurrentProgress();
-});
+window.addEventListener(
+  'pagehide',
+  () => {
+    saveCurrentProgress();
+  }
+);
+
 
 /* =========================
    初始化
@@ -407,11 +810,17 @@ loadVideoFromEncoded(
  * 点击按钮切换视频。
  */
 buttons.forEach(btn => {
-  btn.addEventListener('click', () => {
-    loadVideoFromEncoded(
-      btn.dataset.enc.trim(),
-      true
-    );
-  });
+  btn.addEventListener(
+    'click',
+    () => {
+      loadVideoFromEncoded(
+        btn.dataset.enc.trim(),
+        true
+      );
+    }
+  );
 });
 </script>
+
+</body>
+</html>
