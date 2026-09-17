@@ -166,17 +166,15 @@ const loadingOverlay = document.getElementById('loadingOverlay');
 let hls = null;
 let lastSaveTime = 0;
 
-// 【核心修复1】用变量记录当前真实的视频 URL，绝不使用 video.src 作为 Key（因为 hls.js 会把 src 改成 blob:）
 let currentPlayingUrl = ""; 
+let isVideoSwitching = false; // 【核心修复3】切换状态锁：防止 load() 瞬间产生0秒进度覆盖本地数据
 
 // --- 记忆播放：保存进度 ---
 function saveProgress(url, time) {
   if (!url || isNaN(time) || time <= 0) return;
   try {
     localStorage.setItem("progress_" + url, time.toFixed(1));
-  } catch (e) {
-    // 忽略 iOS 隐私模式可能抛出的错误
-  }
+  } catch (e) {}
 }
 
 // --- 记忆播放：读取进度 ---
@@ -189,11 +187,15 @@ function loadProgress(url) {
   }
 }
 
-// --- 核心保存函数（多处事件统一调用） ---
+// --- 核心保存函数 ---
 function saveCurrentProgress() {
-  if (currentPlayingUrl && video.currentTime > 0) {
-    saveProgress(currentPlayingUrl, video.currentTime);
-  }
+  // 防御机制：如果没有 URL，或正在切换视频，或时间为 0，则一律拒绝保存以防误伤
+  if (!currentPlayingUrl || isVideoSwitching || isNaN(video.currentTime) || video.currentTime < 1) return;
+  
+  // 【核心修复4】如果视频即将播完(剩不到2秒)，不要保存，避免下次打开直接结束
+  if (video.duration && !isNaN(video.duration) && video.currentTime >= video.duration - 2) return;
+  
+  saveProgress(currentPlayingUrl, video.currentTime);
 }
 
 function setActiveButton(enc) {
@@ -218,42 +220,28 @@ function loadVideo(url, resumeTime, isM3U8, userInitiated = false) {
     hls = null;
   }
 
-  // 记录当前真实 URL
   currentPlayingUrl = url;
+  isVideoSwitching = false; // 解除切换锁定，允许正常保存进度
 
   const canNativePlay = video.canPlayType('application/vnd.apple.mpegurl') || video.canPlayType('application/x-mpegURL');
-
-  // 【核心修复2】修复时长判断逻辑，解决移动端 duration 为 NaN 时进度被强制清零的 Bug
-  const applyResumeTime = () => {
-    if (resumeTime > 0) {
-      // 如果已知视频长度，且恢复点比总长度大（脏数据），则重置；否则直接设置
-      // 注意：移动端 duration 经常是 NaN，此时不能再限制 resumeTime < video.duration
-      if (video.duration && !isNaN(video.duration) && resumeTime >= video.duration) {
-        video.currentTime = 0;
-      } else {
-        video.currentTime = resumeTime; 
-      }
-    } else {
-      video.currentTime = 0;
-    }
-    
-    if (userInitiated) {
-      video.play().catch(() => {});
-    }
-    hideLoading();
-  };
 
   // 安卓 / 桌面端 Chrome：使用 Hls.js 播放
   if (isM3U8 && typeof Hls !== 'undefined' && Hls.isSupported() && !canNativePlay) {
     hls = new Hls({
       enableWorker: true,
-      startFragPrefetch: true
+      startFragPrefetch: true,
+      // 【核心修复1】利用 Hls.js 原生 startPosition 直接跳转进度，彻底抛弃 MANIFEST_PARSED 中强制定位
+      startPosition: resumeTime > 0 ? resumeTime : -1 
     });
     hls.loadSource(url);
     hls.attachMedia(video);
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      applyResumeTime();
+      if (currentPlayingUrl !== url) return;
+      if (userInitiated) {
+        video.play().catch(() => {});
+      }
+      hideLoading();
     });
 
     hls.on(Hls.Events.ERROR, function(event, data) {
@@ -275,10 +263,35 @@ function loadVideo(url, resumeTime, isM3U8, userInitiated = false) {
   } else {
     // iOS Safari / Mac Safari：走原生 m3u8 播放流程
     video.src = url;
-    video.addEventListener('loadedmetadata', function onLoaded() {
-      video.removeEventListener('loadedmetadata', onLoaded);
-      applyResumeTime();
-    });
+    
+    let hasResumed = false;
+    const tryResume = () => {
+      // 保证同一个视频只恢复一次
+      if (currentPlayingUrl !== url || hasResumed) return;
+      if (resumeTime > 0) {
+        try {
+          video.currentTime = resumeTime;
+          hasResumed = true;
+        } catch (e) {
+          // iOS 下抛出异常（说明媒体分片还没准备好），忽略并交给下一个事件重试
+        }
+      } else {
+        hasResumed = true; 
+      }
+    };
+
+    // 【核心修复2】iOS 下暴力多重事件兜底（loadedmetadata 通常不够），谁先就绪谁恢复
+    video.addEventListener('loadedmetadata', tryResume);
+    video.addEventListener('canplay', tryResume);
+    video.addEventListener('play', tryResume);
+
+    video.addEventListener('loadedmetadata', () => {
+      if (currentPlayingUrl !== url) return;
+      if (userInitiated) {
+        video.play().catch(() => {});
+      }
+      hideLoading();
+    }, { once: true });
   }
 
   video.controls = true;
@@ -287,49 +300,51 @@ function loadVideo(url, resumeTime, isM3U8, userInitiated = false) {
 function loadVideoFromEncoded(encStr, userInitiated = false) {
   const url = decodeBase64(encStr.trim());
   if (!url) return;
+  if (url === currentPlayingUrl) return; // 重复点击同一视频拦截
 
-  // 切换前立刻保存当前视频进度
+  // 核心：在正式切断旧 URL 之前，立刻保存旧视频进度
   saveCurrentProgress();
+  
+  isVideoSwitching = true; // 上锁：防止下面 load() 过程中触发 pause/timeupdate 把进度存为0
+  currentPlayingUrl = "";  // 清空 URL，避免串联误伤
 
   const isM3U8 = url.includes(".m3u8");
   setActiveButton(encStr);
   showLoading();
+  
   const resumeTime = loadProgress(url);
   loadVideo(url, resumeTime, isM3U8, userInitiated);
 }
 
-// --- 【核心修复3】全方位进度保存监听（适配移动端） ---
-// 1. 播放中定期保存（节流：每 1 秒写一次，确保内存中有最新进度）
+// --- 全方位进度保存监听 ---
 video.addEventListener('timeupdate', () => {
-  if (!currentPlayingUrl || video.paused) return;
+  if (!currentPlayingUrl || video.paused || isVideoSwitching) return;
   const now = Date.now();
-  if (now - lastSaveTime > 1000) {
+  if (now - lastSaveTime > 1000) { // 每秒写一次
     lastSaveTime = now;
     saveCurrentProgress();
   }
 });
 
-// 2. 暂停、播放结束时立刻保存
 video.addEventListener('pause', saveCurrentProgress);
-video.addEventListener('ended', saveCurrentProgress);
 
-// 3. 【移动端核心】切后台、锁屏时保存（iOS Safari 和安卓在此场景下不触发 beforeunload）
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') {
-    saveCurrentProgress();
+// 【核心修复4】视频正常播完时主动清零进度（下次重新开始）
+video.addEventListener('ended', () => {
+  if (currentPlayingUrl) {
+    saveProgress(currentPlayingUrl, 0);
   }
 });
 
-// 4. 页面隐藏/关闭时保存（覆盖绝大多数场景）
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') saveCurrentProgress();
+});
 window.addEventListener('pagehide', saveCurrentProgress);
 window.addEventListener('beforeunload', saveCurrentProgress);
 
 // --- 初始化与事件绑定 ---
-// 页面初始化加载第一个视频，不自动调用 play() 避开 iOS 拦截政策
 loadVideoFromEncoded(buttons[0].dataset.enc.trim(), false);
 
 buttons.forEach(btn => {
-  // 用户点击按钮触发，允许自动播放
   btn.addEventListener('click', () => loadVideoFromEncoded(btn.dataset.enc.trim(), true));
 });
 
