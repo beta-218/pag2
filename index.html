@@ -16,7 +16,6 @@
     justify-content: flex-start;
     align-items: center;
     min-height: 100vh;
-    /* 取消底部 padding，改由 .video-list 的 margin-bottom 精确控制 */
     padding: 80px 20px 0;
   }
   .content-wrapper {
@@ -97,20 +96,20 @@
     100% { opacity: 0; }
   }
 
-  /* -------- 布局部分严格按照上一版要求 -------- */
+  /* -------- 布局严格按照要求：3个一行，列距10px，行距24px，底距12px -------- */
   .video-list {
     display: grid;
-    grid-template-columns: repeat(3, auto); /* 每行3个，列宽由按钮内容撑开 */
-    justify-content: center;                /* 整个网格在页面居中对齐 */
-    justify-items: center;                  /* 每个按钮在格子里居中 */
+    grid-template-columns: repeat(3, auto);
+    justify-content: center;
+    justify-items: center;
     width: 100%;
     max-width: 90vw;
     margin-top: 20px;
-    column-gap: 10px;                       /* 列距保持和原来完全一样 (10px) */
-    row-gap: 24px;                          /* 行间距24px */
-    margin-bottom: 12px;                    /* 第5行距离底部 = 行间距的一半 (24px / 2) */
+    column-gap: 10px;
+    row-gap: 24px;
+    margin-bottom: 12px;
   }
-  /* ---------------------------------------- */
+  /* --------------------------------------------------------------- */
 
   .video-button {
     padding: 10px 16px;
@@ -165,7 +164,10 @@ const video = document.getElementById('video');
 const buttons = document.querySelectorAll('.video-button');
 const loadingOverlay = document.getElementById('loadingOverlay');
 let hls = null;
-let lastSaveTime = 0; // 用于节流保存进度
+let lastSaveTime = 0;
+
+// 【核心修复1】用变量记录当前真实的视频 URL，绝不使用 video.src 作为 Key（因为 hls.js 会把 src 改成 blob:）
+let currentPlayingUrl = ""; 
 
 // --- 记忆播放：保存进度 ---
 function saveProgress(url, time) {
@@ -173,7 +175,7 @@ function saveProgress(url, time) {
   try {
     localStorage.setItem("progress_" + url, time.toFixed(1));
   } catch (e) {
-    // 忽略 iOS 隐私模式可能抛出的 QuotaExceededError
+    // 忽略 iOS 隐私模式可能抛出的错误
   }
 }
 
@@ -184,6 +186,13 @@ function loadProgress(url) {
     return isNaN(t) ? 0 : t;
   } catch (e) {
     return 0;
+  }
+}
+
+// --- 核心保存函数（多处事件统一调用） ---
+function saveCurrentProgress() {
+  if (currentPlayingUrl && video.currentTime > 0) {
+    saveProgress(currentPlayingUrl, video.currentTime);
   }
 }
 
@@ -209,16 +218,25 @@ function loadVideo(url, resumeTime, isM3U8, userInitiated = false) {
     hls = null;
   }
 
+  // 记录当前真实 URL
+  currentPlayingUrl = url;
+
   const canNativePlay = video.canPlayType('application/vnd.apple.mpegurl') || video.canPlayType('application/x-mpegURL');
 
-  // 统一的恢复进度逻辑
+  // 【核心修复2】修复时长判断逻辑，解决移动端 duration 为 NaN 时进度被强制清零的 Bug
   const applyResumeTime = () => {
-    // 防止进度大于视频总时长导致报错
-    if (resumeTime > 0 && video.duration && resumeTime < video.duration) {
-      video.currentTime = resumeTime;
+    if (resumeTime > 0) {
+      // 如果已知视频长度，且恢复点比总长度大（脏数据），则重置；否则直接设置
+      // 注意：移动端 duration 经常是 NaN，此时不能再限制 resumeTime < video.duration
+      if (video.duration && !isNaN(video.duration) && resumeTime >= video.duration) {
+        video.currentTime = 0;
+      } else {
+        video.currentTime = resumeTime; 
+      }
     } else {
       video.currentTime = 0;
     }
+    
     if (userInitiated) {
       video.play().catch(() => {});
     }
@@ -270,10 +288,8 @@ function loadVideoFromEncoded(encStr, userInitiated = false) {
   const url = decodeBase64(encStr.trim());
   if (!url) return;
 
-  // 【记忆播放优化】切换视频前，强制保存当前视频的进度
-  if (video.src && video.currentTime > 0) {
-    saveProgress(video.src, video.currentTime);
-  }
+  // 切换前立刻保存当前视频进度
+  saveCurrentProgress();
 
   const isM3U8 = url.includes(".m3u8");
   setActiveButton(encStr);
@@ -282,38 +298,33 @@ function loadVideoFromEncoded(encStr, userInitiated = false) {
   loadVideo(url, resumeTime, isM3U8, userInitiated);
 }
 
-// --- 记忆播放：事件绑定 ---
-// 1. 播放中定期保存（节流：每秒最多保存一次，减少移动端性能损耗）
+// --- 【核心修复3】全方位进度保存监听（适配移动端） ---
+// 1. 播放中定期保存（节流：每 1 秒写一次，确保内存中有最新进度）
 video.addEventListener('timeupdate', () => {
-  if (!video.src || video.paused) return;
+  if (!currentPlayingUrl || video.paused) return;
   const now = Date.now();
   if (now - lastSaveTime > 1000) {
     lastSaveTime = now;
-    saveProgress(video.src, video.currentTime);
+    saveCurrentProgress();
   }
 });
 
-// 2. 暂停、播放结束时立即保存
-video.addEventListener('pause', () => {
-  if (video.src) saveProgress(video.src, video.currentTime);
-});
-video.addEventListener('ended', () => {
-  if (video.src) saveProgress(video.src, video.currentTime);
-});
+// 2. 暂停、播放结束时立刻保存
+video.addEventListener('pause', saveCurrentProgress);
+video.addEventListener('ended', saveCurrentProgress);
 
-// 3. 移动端切后台/锁屏时保存（iOS Safari 兼容关键）
+// 3. 【移动端核心】切后台、锁屏时保存（iOS Safari 和安卓在此场景下不触发 beforeunload）
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden' && video.src) {
-    saveProgress(video.src, video.currentTime);
+  if (document.visibilityState === 'hidden') {
+    saveCurrentProgress();
   }
 });
 
-// 4. 页面关闭前保存
-window.addEventListener('beforeunload', () => {
-  if (video.src) saveProgress(video.src, video.currentTime);
-});
+// 4. 页面隐藏/关闭时保存（覆盖绝大多数场景）
+window.addEventListener('pagehide', saveCurrentProgress);
+window.addEventListener('beforeunload', saveCurrentProgress);
 
-
+// --- 初始化与事件绑定 ---
 // 页面初始化加载第一个视频，不自动调用 play() 避开 iOS 拦截政策
 loadVideoFromEncoded(buttons[0].dataset.enc.trim(), false);
 
