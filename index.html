@@ -16,7 +16,7 @@
     justify-content: flex-start;
     align-items: center;
     min-height: 100vh;
-    padding: 80px 20px 20px;
+    padding: 80px 20px 0px; /* 底部 padding 改为 0，用下方的 margin 严格控制底部间距 */
   }
   .content-wrapper {
     display: flex;
@@ -98,12 +98,12 @@
   .video-list {
     display: grid;
     grid-template-columns: repeat(3, 1fr); 
-    row-gap: 4vh; /* 按屏幕比例增加垂直行间距 */
+    row-gap: 12px; /* 减少按钮之间的行间距 */
     column-gap: 12px; /* 水平列间距 */
-    margin-top: 5vh; /* 按屏幕比例增加与上方播放器的间距 */
+    margin-top: 8vh; /* 增加与上方播放器的距离 */
+    margin-bottom: 4vh; /* 底部预留距离为上方间距的一半 */
     width: 100%;
     max-width: 360px; 
-    padding-bottom: 20px;
   }
   .video-button {
     padding: 10px 0; 
