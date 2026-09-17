@@ -13,21 +13,19 @@
     font-family: Arial, sans-serif;
     display: flex;
     flex-direction: column;
-    /* 保持顶部的内边距，以及留出底部安全距离 */
+    justify-content: flex-start;
+    align-items: center;
     min-height: 100vh;
-    padding: 80px 20px 20px;
+    /* 取消底部 padding，改由 .video-list 的 margin-bottom 精确控制 */
+    padding: 80px 20px 0;
   }
-
   .content-wrapper {
     display: flex;
     flex-direction: column;
     align-items: center;
     width: 100%;
     max-width: 90vw;
-    /* 居中内容 */
-    margin: 0 auto;
   }
-
   h1 {
     font-size: 13px;
     font-weight: normal;
@@ -35,26 +33,22 @@
     text-align: center;
     opacity: 0.6;
   }
-
   .video-container {
     position: relative;
     width: 100%;
   }
-
   video {
     width: 100%;
     height: auto;
     border-radius: 12px;
     background: #000;
   }
-
   .buffer-tips {
     font-size: 11px;
     color: rgba(255, 255, 255, 0.4);
     margin-top: 8px;
     text-align: center;
   }
-
   .loading-overlay {
     position: absolute;
     top: 0; left: 0;
@@ -67,7 +61,6 @@
     pointer-events: none;
     border-radius: 12px;
   }
-
   .loader {
     width: 40px;
     height: 40px;
@@ -76,14 +69,11 @@
     border-radius: 50%;
     animation: spin 1s linear infinite, pulse 1.5s ease-in-out infinite;
   }
-
   @keyframes spin { to { transform: rotate(360deg); } }
-
   @keyframes pulse {
     0%, 100% { box-shadow: 0 0 0 0 rgba(0,255,136,0.6); }
     50% { box-shadow: 0 0 15px 5px rgba(0,255,136,0.3); }
   }
-
   .loading-text {
     margin-top: 10px;
     font-size: 14px;
@@ -92,39 +82,38 @@
     display: flex;
     align-items: center;
   }
-
   .dots span {
     opacity: 0;
     color: #00ff88;
     text-shadow: 0 0 5px #00ff88, 0 0 10px #00ff88;
     animation: blink 1.5s infinite;
   }
-
   .dots span:nth-child(1) { animation-delay: 0s; }
   .dots span:nth-child(2) { animation-delay: 0.3s; }
   .dots span:nth-child(3) { animation-delay: 0.6s; }
-
   @keyframes blink {
     0%, 20% { opacity: 0; }
     30%, 80% { opacity: 1; }
     100% { opacity: 0; }
   }
 
-  /* 修改部分：视频列表按钮排列 */
+  /* -------- 调整后的 .video-list 布局 -------- */
   .video-list {
     display: grid;
-    grid-template-columns: repeat(3, 1fr); /* 严格 3 个一行 */
-    gap: 10px;
+    grid-template-columns: repeat(3, auto); /* 每行3个，列宽由按钮内容撑开（不拉伸） */
+    justify-content: center;                /* 整个网格在页面居中对齐 */
+    justify-items: center;                  /* 每个按钮在格子里居中 */
     width: 100%;
     max-width: 90vw;
-    margin: 0 auto;
-    margin-top: auto; /* 自动将元素推到页面最底部 */
-    padding-top: 40px; /* 与上方视频内容保持一定安全距离 */
+    margin-top: 20px;
+    column-gap: 10px;                       /* 列距保持和原来完全一样 (10px) */
+    row-gap: 24px;                          /* 适当增加行间距至24px */
+    margin-bottom: 12px;                    /* 第5行距离底部 = 行间距的一半 (24px / 2) */
   }
+  /* ---------------------------------------- */
 
   .video-button {
-    width: 100%; /* 按钮自适应网格宽度 */
-    padding: 10px 0;
+    padding: 10px 16px;
     font-size: 15px;
     border: none;
     border-radius: 8px;
@@ -132,16 +121,13 @@
     color: white;
     cursor: pointer;
     transition: background-color 0.3s;
-    text-align: center;
   }
-
   .video-button:hover { background-color: #555; }
   .video-button.active { background-color: #00c300; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
 </head>
 <body>
-
 <div class="content-wrapper">
   <h1>🎬 为避免财产损失，请勿相信视频中的广告</h1>
   <div class="video-container">
@@ -156,7 +142,6 @@
   <div class="buffer-tips">如遇卡顿，请尝试暂停缓冲几秒</div>
 </div>
 
-<!-- 视频列表按钮 -->
 <div class="video-list" id="videoList">
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNS5maGJiZmYuY29tLzIwMjUwNjI5L2hBN2l0blVkL2luZGV4Lm0zdTg=">视频1</button>
   <button class="video-button" data-enc="aHR0cHM6Ly92MjAyNC5maGJiZmYuY29tLzIwMjQxMTE5L2dvbGp6a2lNL2luZGV4Lm0zdTg=">视频2</button>
