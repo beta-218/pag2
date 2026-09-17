@@ -97,14 +97,16 @@
   }
   .video-list {
     display: grid;
-    grid-template-columns: repeat(3, 1fr); /* 设置为3列等宽 */
-    gap: 10px; /* 按钮间距 */
-    margin-top: 20px;
+    grid-template-columns: repeat(3, 1fr); 
+    row-gap: 4vh; /* 按屏幕比例增加垂直行间距 */
+    column-gap: 12px; /* 水平列间距 */
+    margin-top: 5vh; /* 按屏幕比例增加与上方播放器的间距 */
     width: 100%;
-    max-width: 360px; /* 限制最大宽度，保证按钮比例美观 */
+    max-width: 360px; 
+    padding-bottom: 20px;
   }
   .video-button {
-    padding: 10px 0; /* 靠 grid-template 自动撑开水平宽度，因此设左右内边距为0 */
+    padding: 10px 0; 
     font-size: 15px;
     border: none;
     border-radius: 8px;
@@ -112,7 +114,7 @@
     color: white;
     cursor: pointer;
     transition: background-color 0.3s;
-    text-align: center; /* 确保文字水平居中 */
+    text-align: center; 
   }
   .video-button:hover { background-color: #555; }
   .video-button.active { background-color: #00c300; }
